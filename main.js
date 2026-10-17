@@ -2,10 +2,10 @@
 const GAME_WIDTH = 800;
 const GAME_HEIGHT = 600;
 
-// Minigame trigger: the area in front of the computer on the desk in the
-// ship's top-left cabin (game coordinates, measured from ship_interior.png,
-// which is upscaled 2x). The minigame starts when the player's center enters
-// this area.
+// Navigation screen trigger: the area in front of the computer on the desk in
+// the ship's top-left cabin (game coordinates, measured from ship_interior.png,
+// which is upscaled 2x). The navigation screen opens when the player's center
+// enters this area.
 const COMPUTER_ZONE = { x: 40, y: 150, width: 160, height: 110 };
 
 // Ship geometry (game coordinates, measured from ship_interior.png, which is
@@ -21,8 +21,8 @@ const CLIMB_SPEED = 160; // px/s on the ladder
 const GRAVITY = 1500; // px/s^2
 const JUMP_SPEED = 550; // px/s upwards (reaches ~100 px high)
 
-// Minigame: bounds of the monitor's screen inside comrad64.png (measured from
-// the image). This is the play field the ship will navigate in later.
+// Navigation screen: bounds of the monitor's screen inside comrad64.png
+// (measured from the image). This is the field the ship will navigate in later.
 const MONITOR_SCREEN = { x: 56, y: 63, width: 684, height: 464 };
 // The goal square at the top-right of the monitor screen: the end station of
 // the mission.
@@ -83,7 +83,7 @@ class MainScene extends Phaser.Scene {
     this.playerVy = 0;
 
     // The 'idle' animation is global to the game, so only register it once —
-    // the main scene is restarted when returning from a minigame.
+    // the main scene is restarted when returning from the navigation screen.
     if (!this.anims.exists('idle')) {
       this.anims.create({
         key: 'idle',
@@ -94,8 +94,8 @@ class MainScene extends Phaser.Scene {
     }
     this.player.play('idle');
 
-    // Set once the corner triggers the minigame, so the scene transition is
-    // only queued once (reset on every scene start).
+    // Set once the computer triggers the navigation screen, so the scene
+    // transition is only queued once (reset on every scene start).
     this._leaving = false;
 
     // Set by the space bar (consumed in update): request a small jump.
@@ -161,7 +161,7 @@ class MainScene extends Phaser.Scene {
     // The jump request is consumed (or discarded) every frame.
     this.jumpRequested = false;
 
-    // Enter the minigame when the player walks up to the computer.
+    // Open the navigation screen when the player walks up to the computer.
     const inZone =
       this.player.x >= COMPUTER_ZONE.x &&
       this.player.x <= COMPUTER_ZONE.x + COMPUTER_ZONE.width &&
@@ -169,18 +169,17 @@ class MainScene extends Phaser.Scene {
       this.player.y <= COMPUTER_ZONE.y + COMPUTER_ZONE.height;
     if (inZone && !this._leaving) {
       this._leaving = true;
-      this.scene.start('Minigame');
+      this.scene.start('navigationScreen');
     }
   }
 }
 
-// --- Placeholder minigame scene ----------------------------------------------
-// A stand-in minigame so the "enter minigame / Esc to leave" flow can be tested.
-// Replace this with the real minigames later (each one should return to
-// 'MainScene' on Esc).
-class MinigameScene extends Phaser.Scene {
+// --- Navigation screen scene ---------------------------------------------------
+// The ship's navigation screen, shown on the computer monitor. Later a ship
+// will navigate towards the goal square here. Esc returns to 'MainScene'.
+class NavigationScreenScene extends Phaser.Scene {
   constructor() {
-    super({ key: 'Minigame' });
+    super({ key: 'navigationScreen' });
   }
 
   preload() {
@@ -223,7 +222,7 @@ const config = {
       debug: false,
     },
   },
-  scene: [MainScene, MinigameScene],
+  scene: [MainScene, NavigationScreenScene],
 };
 
 const game = new Phaser.Game(config);
