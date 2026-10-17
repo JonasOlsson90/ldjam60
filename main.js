@@ -493,6 +493,12 @@ class ElectricityGeneratorScene extends Phaser.Scene {
 const WHEEL_TURN_SPEED = 2.0; // rad/s the A/D keys turn the wheel
 const STAR_DRIFT = 160; // px/s at full deflection, opposite to the turn
 const STAR_COUNT = 80;
+// wheel_base.png is a full-screen cockpit image: the star field shows in its
+// windshield (the black area, measured from the image) and the wheel sits on
+// the center pedestal.
+const WINDSHIELD = { x: 56, y: 40, width: 684, height: 320 };
+const WHEEL_X = GAME_WIDTH / 2;
+const WHEEL_Y = 370;
 
 class SteeringWheelScene extends Phaser.Scene {
   constructor() {
@@ -508,25 +514,28 @@ class SteeringWheelScene extends Phaser.Scene {
   create() {
     this.cameras.main.setBackgroundColor('#000000');
 
-    // A static star field; it drifts sideways while steering.
+    // The cockpit dashboard fills the whole screen.
+    this.add
+      .image(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'wheel_base')
+      .setDepth(0);
+
+    // The star field, visible through the windshield; it drifts sideways
+    // while steering.
     this.stars = [];
     for (let i = 0; i < STAR_COUNT; i++) {
       this.stars.push(
-        this.add.image(
-          Math.random() * GAME_WIDTH,
-          Math.random() * GAME_HEIGHT,
-          'star'
-        )
+        this.add
+          .image(
+            WINDSHIELD.x + Math.random() * WINDSHIELD.width,
+            WINDSHIELD.y + Math.random() * WINDSHIELD.height,
+            'star'
+          )
+          .setDepth(1)
       );
     }
 
-    // The steering column (base) with the wheel mounted on its hub: the hub
-    // sits ~(150,68) in the base's 300x300 image; the wheel's hub is its
-    // center.
-    const baseX = GAME_WIDTH / 2;
-    const baseY = 400;
-    this.add.image(baseX, baseY, 'wheel_base');
-    this.wheel = this.add.image(baseX, baseY + (68 - 150), 'wheel');
+    // The steering wheel mounted on the center pedestal.
+    this.wheel = this.add.image(WHEEL_X, WHEEL_Y, 'wheel').setDepth(2);
 
     this.keys = {
       a: this.input.keyboard.addKey('A'),
@@ -565,13 +574,15 @@ class SteeringWheelScene extends Phaser.Scene {
     }
 
     // The star field drifts with the current turn rate (opposite to the
-    // turn), wrapping around — it keeps moving while the wheel stays turned.
+    // turn), wrapping around the windshield — it keeps moving while the
+    // wheel stays turned.
     const turn = navSim.wheel / MAX_WHEEL_ANGLE; // -1..1
     if (turn !== 0) {
       for (const s of this.stars) {
         s.x -= turn * STAR_DRIFT * dt;
-        if (s.x < -4) s.x += GAME_WIDTH + 8;
-        else if (s.x > GAME_WIDTH + 4) s.x -= GAME_WIDTH + 8;
+        if (s.x < WINDSHIELD.x - 4) s.x += WINDSHIELD.width + 8;
+        else if (s.x > WINDSHIELD.x + WINDSHIELD.width + 4)
+          s.x -= WINDSHIELD.width + 8;
       }
     }
 
