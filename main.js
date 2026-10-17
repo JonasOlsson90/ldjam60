@@ -406,7 +406,8 @@ class NavigationScreenScene extends Phaser.Scene {
     // (driven by the always-running navigation simulation).
     this.ship = createNavShip(this, 1, 10);
 
-    // Esc returns to the main ship screen.
+    // Esc (or the controller's B button) returns to the main ship screen.
+    this.padBWasDown = false;
     this.input.keyboard.on('keydown-ESC', () => {
       this.scene.start('MainScene');
     });
@@ -417,14 +418,20 @@ class NavigationScreenScene extends Phaser.Scene {
     updateNavSim(delta / 1000);
     updatePowerSim(delta / 1000);
     syncNavShip(this.ship);
+
+    // The controller's B button exits like Esc.
+    const pad = this.input.gamepad ? this.input.gamepad.pad1 : null;
+    if (pad && pad.B && !this.padBWasDown) this.scene.start('MainScene');
+    this.padBWasDown = !!(pad && pad.B);
   }
 }
 
 // --- Electricity generator scene ------------------------------------------------
-// Pedal the bike to charge the ship's battery: alternate A/D or the left/right
-// arrow keys. Each alternation generates power; the battery always drains
-// slowly. For now the minigame just shows the battery level as a number.
-// Esc returns to 'MainScene'.
+// Pedal the bike to charge the ship's battery: alternate A/D, the left/right
+// arrow keys, or the controller's D-pad left/right. Each alternation
+// generates power; the battery always drains slowly. For now the minigame
+// just shows the battery level as a number.
+// Esc (or the controller's B button) returns to 'MainScene'.
 class ElectricityGeneratorScene extends Phaser.Scene {
   constructor() {
     super({ key: 'electricityGenerator' });
@@ -444,18 +451,21 @@ class ElectricityGeneratorScene extends Phaser.Scene {
 
     // Pedaling: each time the pedal side changes, power is generated.
     this.lastPedalSide = null;
-    const pedal = (side) => {
+    this.pedal = (side) => {
       if (this.lastPedalSide !== null && side !== this.lastPedalSide) {
         powerSim.battery = Math.min(BATTERY_MAX, powerSim.battery + PEDAL_BOOST * POWER_SPEED);
       }
       this.lastPedalSide = side;
     };
-    this.input.keyboard.on('keydown-A', () => pedal('left'));
-    this.input.keyboard.on('keydown-LEFT', () => pedal('left'));
-    this.input.keyboard.on('keydown-D', () => pedal('right'));
-    this.input.keyboard.on('keydown-RIGHT', () => pedal('right'));
+    this.input.keyboard.on('keydown-A', () => this.pedal('left'));
+    this.input.keyboard.on('keydown-LEFT', () => this.pedal('left'));
+    this.input.keyboard.on('keydown-D', () => this.pedal('right'));
+    this.input.keyboard.on('keydown-RIGHT', () => this.pedal('right'));
 
-    // Esc returns to the main ship screen.
+    // Esc (or the controller's B button) returns to the main ship screen.
+    this.padLeftWasDown = false;
+    this.padRightWasDown = false;
+    this.padBWasDown = false;
     this.input.keyboard.on('keydown-ESC', () => {
       this.scene.start('MainScene');
     });
@@ -464,14 +474,27 @@ class ElectricityGeneratorScene extends Phaser.Scene {
   update(time, delta) {
     updatePowerSim(delta / 1000);
     this.batteryText.setText(Math.round(powerSim.battery) + '%');
+
+    // Controller: the D-pad left/right pedals (each press is a stroke, like
+    // the A/D keys) and the B button exits like Esc.
+    const pad = this.input.gamepad ? this.input.gamepad.pad1 : null;
+    const leftDown = !!(pad && pad.left);
+    const rightDown = !!(pad && pad.right);
+    if (leftDown && !this.padLeftWasDown) this.pedal('left');
+    if (rightDown && !this.padRightWasDown) this.pedal('right');
+    this.padLeftWasDown = leftDown;
+    this.padRightWasDown = rightDown;
+    if (pad && pad.B && !this.padBWasDown) this.scene.start('MainScene');
+    this.padBWasDown = !!(pad && pad.B);
   }
 }
 
 // --- Steering wheel scene ---------------------------------------------------
-// Steer the ship like a car: A/D or the controller's D-pad turn the steering
-// wheel. The wheel keeps its position when the keys are released, so the ship
-// (navSim.angle) and the star field keep turning until the wheel is steered
-// back to center. Esc returns to 'MainScene'.
+// Steer the ship like a car: A/D, the left/right arrow keys, or the
+// controller's D-pad turn the steering wheel. The wheel keeps its position
+// when the keys are released, so the ship (navSim.angle) and the star field
+// keep turning until the wheel is steered back to center.
+// Esc (or the controller's B button) returns to 'MainScene'.
 const WHEEL_TURN_SPEED = 2.0; // rad/s the A/D keys turn the wheel
 const STAR_DRIFT = 160; // px/s at full deflection, opposite to the turn
 const STAR_COUNT = 80;
@@ -526,7 +549,8 @@ class SteeringWheelScene extends Phaser.Scene {
       right: this.input.keyboard.addKey('RIGHT'),
     };
 
-    // Esc returns to the main ship screen.
+    // Esc (or the controller's B button) returns to the main ship screen.
+    this.padBWasDown = false;
     this.input.keyboard.on('keydown-ESC', () => {
       this.scene.start('MainScene');
     });
@@ -554,6 +578,10 @@ class SteeringWheelScene extends Phaser.Scene {
         MAX_WHEEL_ANGLE
       );
     }
+
+    // The controller's B button exits like Esc.
+    if (pad && pad.B && !this.padBWasDown) this.scene.start('MainScene');
+    this.padBWasDown = !!(pad && pad.B);
 
     // The star field drifts with the current turn rate (opposite to the
     // turn), wrapping around the windshield — it keeps moving while the
