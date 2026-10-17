@@ -12,9 +12,14 @@ const COMPUTER_ZONE = { x: 40, y: 150, width: 160, height: 110 };
 // bottom-left corner (game coordinates, measured from ship_interior.png).
 const BIKE_ZONE = { x: 30, y: 440, width: 250, height: 130 };
 
+// Steering wheel trigger: the area in front of the steering wheel in the
+// ship's top-right corner (game coordinates). It sits at the right edge of
+// the screen, so the player exits to the left of it (exit: -1).
+const STEERING_ZONE = { x: 660, y: 150, width: 140, height: 160, exit: -1 };
+
 // Remembers where the player stood when opening a minigame, so they return to
-// the same spot afterwards (nudged right, out of the minigame's trigger zone,
-// so it doesn't immediately reopen).
+// the same spot afterwards (nudged out of the minigame's trigger zone in its
+// exit direction, so it doesn't immediately reopen).
 let playerReturnPos = null;
 
 // Ship geometry (game coordinates, measured from ship_interior.png, which is
@@ -43,9 +48,10 @@ const GOAL_Y = MONITOR_SCREEN.y + GOAL_MARGIN + GOAL_SIZE / 2;
 // --- Navigation simulation ---------------------------------------------------
 // The ship shown on the navigation screen. This simulation ALWAYS runs in the
 // background (whatever scene is active advances it); the scenes only
-// visualize it. Later, other minigames will decide what the screen shows and
-// steer the ship.
+// visualize it. Minigames decide what the screen shows and steer the ship.
 const SHIP_SPEED = 9; // px/s
+const STEER_SPEED = 1.6; // rad/s the ship turns at full wheel deflection
+const MAX_WHEEL_ANGLE = Math.PI; // steering wheel clamp: half a turn each way
 const navSim = {
   // Real-time position (game px, inside MONITOR_SCREEN) and pointing
   // direction in radians (0 = right, positive = clockwise). The ship
@@ -54,15 +60,24 @@ const navSim = {
   shipX: MONITOR_SCREEN.x + GOAL_MARGIN + 20,
   shipY: MONITOR_SCREEN.y + MONITOR_SCREEN.height - GOAL_MARGIN - 20,
   angle: -Math.PI / 2,
-  // The latest MEASURED position: this is what the navigation screen (and
-  // its debug overlay) displays — not the real-time position. It is only
-  // updated when the player climbs out of the top of the screen to take a
-  // measurement.
+  // The steering wheel's deflection in radians (0 = centered). It acts like
+  // a car's steering wheel: it keeps its position until turned back, and
+  // while it is turned the ship keeps turning at a rate proportional to the
+  // deflection.
+  wheel: 0,
+  // The latest MEASURED state (position and direction): this is what the
+  // navigation screen displays — frozen until the next measurement. It is
+  // only updated when the player climbs out of the top of the screen to take
+  // a measurement.
   measuredX: MONITOR_SCREEN.x + GOAL_MARGIN + 20,
   measuredY: MONITOR_SCREEN.y + MONITOR_SCREEN.height - GOAL_MARGIN - 20,
+  measuredAngle: -Math.PI / 2,
 };
 
 function updateNavSim(dt) {
+  // Steer like a car: the ship turns at a rate proportional to the wheel's
+  // (persistent) deflection.
+  navSim.angle += (navSim.wheel / MAX_WHEEL_ANGLE) * STEER_SPEED * dt;
   navSim.shipX += Math.cos(navSim.angle) * SHIP_SPEED * dt;
   navSim.shipY += Math.sin(navSim.angle) * SHIP_SPEED * dt;
   // Wrap around the monitor screen edges so the ship never disappears.
@@ -81,8 +96,15 @@ function createNavShip(scene, alpha, depth) {
 }
 
 function syncNavShip(ship) {
-  // The display shows the latest measured position, not the live one.
+  // The navigation screen shows the latest MEASUREMENT (position and
+  // direction), frozen until the next measurement.
   ship.setPosition(navSim.measuredX, navSim.measuredY);
+  ship.setRotation(navSim.measuredAngle);
+}
+
+function syncNavShipLive(ship) {
+  // The debug overlay shows the ship's real-time position and direction.
+  ship.setPosition(navSim.shipX, navSim.shipY);
   ship.setRotation(navSim.angle);
 }
 
@@ -152,13 +174,15 @@ class MainScene extends Phaser.Scene {
     // screen (feet on the edge) with the 2-frame idle animation looping.
     this.player = this.add.sprite(GAME_WIDTH / 2, GAME_HEIGHT, 'player').setDepth(10);
     if (playerReturnPos) {
-      // Returning from a minigame: restore the position, but nudge right out
-      // of the minigame's trigger zone so it doesn't immediately reopen.
+      // Returning from a minigame: restore the position, but nudge out of
+      // the minigame's trigger zone (in its exit direction) so it doesn't
+      // immediately reopen.
       const z = playerReturnPos.zone;
-      this.player.x = Math.max(
-        playerReturnPos.x,
-        z.x + z.width + this.player.displayWidth / 2 + 4
-      );
+      const margin = this.player.displayWidth / 2 + 4;
+      this.player.x =
+        z.exit === -1
+          ? Math.min(playerReturnPos.x, z.x - margin)
+          : Math.max(playerReturnPos.x, z.x + z.width + margin);
       this.player.y = playerReturnPos.y;
     } else {
       this.player.y = FLOOR_BOTTOM - this.player.displayHeight / 2;
@@ -301,10 +325,11 @@ class MainScene extends Phaser.Scene {
 
     // Taking a measurement: while the player is outside the top of the
     // screen (climbed up the ladder), the navigation display's measured
-    // position is updated to the ship's current real position.
+    // state is updated to the ship's current real position and direction.
     if (feet() <= 0) {
       navSim.measuredX = navSim.shipX;
       navSim.measuredY = navSim.shipY;
+      navSim.measuredAngle = navSim.angle;
     }
 
     // Sprite state: climbing (on the ladder, moving or hanging mid-air),
@@ -333,11 +358,12 @@ class MainScene extends Phaser.Scene {
       p.setFlipX(Math.floor(time / 250) % 2 === 0);
     }
 
-    // Sync the debug overlay with the (measured) navigation display.
-    syncNavShip(this.navShipDebug);
+    // Sync the debug overlay with the ship's real-time state.
+    syncNavShipLive(this.navShipDebug);
 
     // Minigame triggers: the computer opens the navigation screen, the bike
-    // opens the electricity generator.
+    // opens the electricity generator, the steering wheel opens the steering
+    // minigame.
     const inComputer =
       p.x >= COMPUTER_ZONE.x &&
       p.x <= COMPUTER_ZONE.x + COMPUTER_ZONE.width &&
@@ -348,14 +374,28 @@ class MainScene extends Phaser.Scene {
       p.x <= BIKE_ZONE.x + BIKE_ZONE.width &&
       p.y >= BIKE_ZONE.y &&
       p.y <= BIKE_ZONE.y + BIKE_ZONE.height;
-    if (!this._leaving && (inComputer || inBike)) {
+    const inSteering =
+      p.x >= STEERING_ZONE.x &&
+      p.x <= STEERING_ZONE.x + STEERING_ZONE.width &&
+      p.y >= STEERING_ZONE.y &&
+      p.y <= STEERING_ZONE.y + STEERING_ZONE.height;
+
+    let target = null;
+    let zone = null;
+    if (inComputer) {
+      target = 'navigationScreen';
+      zone = COMPUTER_ZONE;
+    } else if (inBike) {
+      target = 'electricityGenerator';
+      zone = BIKE_ZONE;
+    } else if (inSteering) {
+      target = 'steeringWheel';
+      zone = STEERING_ZONE;
+    }
+    if (!this._leaving && target) {
       this._leaving = true;
-      playerReturnPos = {
-        x: p.x,
-        y: p.y,
-        zone: inComputer ? COMPUTER_ZONE : BIKE_ZONE,
-      };
-      this.scene.start(inComputer ? 'navigationScreen' : 'electricityGenerator');
+      playerReturnPos = { x: p.x, y: p.y, zone };
+      this.scene.start(target);
     }
   }
 }
@@ -445,6 +485,96 @@ class ElectricityGeneratorScene extends Phaser.Scene {
   }
 }
 
+// --- Steering wheel scene ---------------------------------------------------
+// Steer the ship like a car: A/D or the controller's D-pad turn the steering
+// wheel. The wheel keeps its position when the keys are released, so the ship
+// (navSim.angle) and the star field keep turning until the wheel is steered
+// back to center. Esc returns to 'MainScene'.
+const WHEEL_TURN_SPEED = 2.0; // rad/s the A/D keys turn the wheel
+const STAR_DRIFT = 160; // px/s at full deflection, opposite to the turn
+const STAR_COUNT = 80;
+
+class SteeringWheelScene extends Phaser.Scene {
+  constructor() {
+    super({ key: 'steeringWheel' });
+  }
+
+  preload() {
+    this.load.image('star', 'imgs/star.png');
+    this.load.image('wheel_base', 'imgs/wheel_base.png');
+    this.load.image('wheel', 'imgs/wheel.png');
+  }
+
+  create() {
+    this.cameras.main.setBackgroundColor('#000000');
+
+    // A static star field; it drifts sideways while steering.
+    this.stars = [];
+    for (let i = 0; i < STAR_COUNT; i++) {
+      this.stars.push(
+        this.add.image(
+          Math.random() * GAME_WIDTH,
+          Math.random() * GAME_HEIGHT,
+          'star'
+        )
+      );
+    }
+
+    // The steering column (base) with the wheel mounted on its hub: the hub
+    // sits ~(150,68) in the base's 300x300 image; the wheel's hub is its
+    // center.
+    const baseX = GAME_WIDTH / 2;
+    const baseY = 400;
+    this.add.image(baseX, baseY, 'wheel_base');
+    this.wheel = this.add.image(baseX, baseY + (68 - 150), 'wheel');
+
+    this.keys = {
+      a: this.input.keyboard.addKey('A'),
+      d: this.input.keyboard.addKey('D'),
+    };
+
+    // Esc returns to the main ship screen.
+    this.input.keyboard.on('keydown-ESC', () => {
+      this.scene.start('MainScene');
+    });
+  }
+
+  update(time, delta) {
+    const dt = delta / 1000;
+    // The ship keeps flying (and turning, while the wheel is deflected) and
+    // the battery keeps draining while steering.
+    updateNavSim(dt);
+    updatePowerSim(dt);
+
+    // Turn the steering wheel with A/D or the controller's D-pad left/right.
+    const pad = this.input.gamepad ? this.input.gamepad.pad1 : null;
+    const steer =
+      (this.keys.d.isDown || !!(pad && pad.right) ? 1 : 0) -
+      (this.keys.a.isDown || !!(pad && pad.left) ? 1 : 0);
+    if (steer !== 0) {
+      navSim.wheel = Phaser.Math.Clamp(
+        navSim.wheel + steer * WHEEL_TURN_SPEED * dt,
+        -MAX_WHEEL_ANGLE,
+        MAX_WHEEL_ANGLE
+      );
+    }
+
+    // The star field drifts with the current turn rate (opposite to the
+    // turn), wrapping around — it keeps moving while the wheel stays turned.
+    const turn = navSim.wheel / MAX_WHEEL_ANGLE; // -1..1
+    if (turn !== 0) {
+      for (const s of this.stars) {
+        s.x -= turn * STAR_DRIFT * dt;
+        if (s.x < -4) s.x += GAME_WIDTH + 8;
+        else if (s.x > GAME_WIDTH + 4) s.x -= GAME_WIDTH + 8;
+      }
+    }
+
+    // The wheel shows its own deflection (upright = centered = straight).
+    this.wheel.setRotation(navSim.wheel);
+  }
+}
+
 // --- Game config ------------------------------------------------------------
 const config = {
   type: Phaser.AUTO,
@@ -465,7 +595,7 @@ const config = {
       debug: false,
     },
   },
-  scene: [MainScene, NavigationScreenScene, ElectricityGeneratorScene],
+  scene: [MainScene, NavigationScreenScene, ElectricityGeneratorScene, SteeringWheelScene],
 };
 
 const game = new Phaser.Game(config);
