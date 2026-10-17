@@ -8,6 +8,19 @@ const GAME_HEIGHT = 600;
 // this area.
 const COMPUTER_ZONE = { x: 40, y: 150, width: 160, height: 110 };
 
+// Ship geometry (game coordinates, measured from ship_interior.png, which is
+// displayed upscaled 2x): the heights of the two floors (the player's feet
+// when standing on them) and the horizontal span of the ladder connecting
+// them.
+const FLOOR_TOP = 290;
+const FLOOR_BOTTOM = 576;
+const LADDER = { x: 360, width: 70 };
+
+const MOVE_SPEED = 200; // px/s walking
+const CLIMB_SPEED = 160; // px/s on the ladder
+const GRAVITY = 1500; // px/s^2
+const JUMP_SPEED = 550; // px/s upwards (reaches ~100 px high)
+
 // Minigame: bounds of the monitor's screen inside comrad64.png (measured from
 // the image). This is the play field the ship will navigate in later.
 const MONITOR_SCREEN = { x: 56, y: 63, width: 684, height: 464 };
@@ -65,7 +78,9 @@ class MainScene extends Phaser.Scene {
     // Player: the character sprite, standing at the bottom-center of the
     // screen (feet on the edge) with the 2-frame idle animation looping.
     this.player = this.add.sprite(GAME_WIDTH / 2, GAME_HEIGHT, 'player').setDepth(10);
-    this.player.y = GAME_HEIGHT - this.player.displayHeight / 2;
+    this.player.y = FLOOR_BOTTOM - this.player.displayHeight / 2;
+    // Vertical velocity (px/s) while falling; 0 when standing or climbing.
+    this.playerVy = 0;
 
     // The 'idle' animation is global to the game, so only register it once —
     // the main scene is restarted when returning from a minigame.
@@ -83,19 +98,68 @@ class MainScene extends Phaser.Scene {
     // only queued once (reset on every scene start).
     this._leaving = false;
 
+    // Set by the space bar (consumed in update): request a small jump.
+    this.jumpRequested = false;
+    this.input.keyboard.on('keydown-SPACE', () => {
+      this.jumpRequested = true;
+    });
+
     this.cursors = this.input.keyboard.createCursorKeys();
   }
 
   update(time, delta) {
-    // Move the placeholder with the arrow keys / WASD.
-    if (this.cursors.left.isDown) this.player.x -= 200 * (delta / 1000);
-    if (this.cursors.right.isDown) this.player.x += 200 * (delta / 1000);
-    if (this.cursors.up.isDown) this.player.y -= 200 * (delta / 1000);
-    if (this.cursors.down.isDown) this.player.y += 200 * (delta / 1000);
+    const dt = delta / 1000;
+    const p = this.player;
 
-    // Keep the sprite fully on screen.
-    this.player.x = Phaser.Math.Clamp(this.player.x, this.player.displayWidth / 2, GAME_WIDTH - this.player.displayWidth / 2);
-    this.player.y = Phaser.Math.Clamp(this.player.y, this.player.displayHeight / 2, GAME_HEIGHT - this.player.displayHeight / 2);
+    // Walking (always possible).
+    if (this.cursors.left.isDown) p.x -= MOVE_SPEED * dt;
+    if (this.cursors.right.isDown) p.x += MOVE_SPEED * dt;
+    p.x = Phaser.Math.Clamp(p.x, p.displayWidth / 2, GAME_WIDTH - p.displayWidth / 2);
+
+    const feet = () => p.y + p.displayHeight / 2;
+    const onLadder = p.x >= LADDER.x && p.x <= LADDER.x + LADDER.width;
+    const onFloor =
+      Math.abs(feet() - FLOOR_TOP) < 2 || Math.abs(feet() - FLOOR_BOTTOM) < 2;
+
+    if (onLadder && (this.cursors.up.isDown || this.cursors.down.isDown)) {
+      // Climbing the ladder: no gravity while moving along it. The player may
+      // climb as high as they want (up to the top of the screen); the lower
+      // end of the ladder is the bottom floor.
+      this.playerVy = 0;
+      if (this.cursors.up.isDown) p.y -= CLIMB_SPEED * dt;
+      else p.y += CLIMB_SPEED * dt;
+      p.y = Phaser.Math.Clamp(
+        p.y,
+        p.displayHeight / 2,
+        FLOOR_BOTTOM - p.displayHeight / 2
+      );
+    } else if (onLadder && !onFloor) {
+      // Hanging on the ladder between the floors.
+      this.playerVy = 0;
+    } else {
+      // A space-bar press while standing on a floor starts a small jump.
+      if (this.jumpRequested && onFloor) {
+        this.playerVy = -JUMP_SPEED;
+      }
+
+      // Gravity: accelerate downwards and land on the highest floor whose
+      // level the feet reached or crossed this frame. (The crossing check
+      // prevents tunneling through the top floor during a fast fall; the
+      // small tolerance keeps a standing player from sinking through it.)
+      const prevFeet = feet();
+      this.playerVy += GRAVITY * dt;
+      p.y += this.playerVy * dt;
+      if (feet() >= FLOOR_TOP && prevFeet <= FLOOR_TOP + 4) {
+        p.y = FLOOR_TOP - p.displayHeight / 2;
+        this.playerVy = 0;
+      } else if (feet() >= FLOOR_BOTTOM) {
+        p.y = FLOOR_BOTTOM - p.displayHeight / 2;
+        this.playerVy = 0;
+      }
+    }
+
+    // The jump request is consumed (or discarded) every frame.
+    this.jumpRequested = false;
 
     // Enter the minigame when the player walks up to the computer.
     const inZone =
@@ -166,5 +230,5 @@ const game = new Phaser.Game(config);
 
 // Keep the movement keys for the game even when the canvas doesn't have
 // browser focus (e.g. right after a page reload).
-game.input.keyboard.addCapture('UP,DOWN,LEFT,RIGHT,W,A,S,D');
+game.input.keyboard.addCapture('UP,DOWN,LEFT,RIGHT,W,A,S,D,SPACE');
 game.canvas.addEventListener('mousedown', () => game.canvas.focus());
