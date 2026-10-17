@@ -10,8 +10,13 @@ class MainScene extends Phaser.Scene {
 
   preload() {
     this.load.image('ship_interior', 'imgs/ship_interior.png');
+    // Player: 2-frame spritesheet, 63x132 per frame.
+    this.load.spritesheet('player', 'imgs/Sprite-0001.png', {
+      frameWidth: 63,
+      frameHeight: 132,
+    });
     // Load other textures and audio here, e.g.:
-    // this.load.image('player', 'assets/player.png');
+    // this.load.image('bg', 'assets/bg.png');
   }
 
   create() {
@@ -43,10 +48,18 @@ class MainScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(10);
 
-    // Placeholder sprite to confirm the game loop runs.
-    this.player = this.add
-      .rectangle(GAME_WIDTH / 2, GAME_HEIGHT - 60, 40, 40, 0x2ec4b6)
-      .setDepth(10);
+    // Player: the character sprite, standing at the bottom-center of the
+    // screen (feet on the edge) with the 2-frame idle animation looping.
+    this.player = this.add.sprite(GAME_WIDTH / 2, GAME_HEIGHT, 'player').setDepth(10);
+    this.player.y = GAME_HEIGHT - this.player.displayHeight / 2;
+
+    this.anims.create({
+      key: 'idle',
+      frames: this.anims.generateFrameNumbers('player', { start: 0, end: 1 }),
+      frameRate: 4,
+      repeat: -1,
+    });
+    this.player.play('idle');
 
     this.cursors = this.input.keyboard.createCursorKeys();
   }
@@ -58,9 +71,9 @@ class MainScene extends Phaser.Scene {
     if (this.cursors.up.isDown) this.player.y -= 200 * (delta / 1000);
     if (this.cursors.down.isDown) this.player.y += 200 * (delta / 1000);
 
-    // Keep the placeholder inside the playfield.
-    this.player.x = Phaser.Math.Clamp(this.player.x, 20, GAME_WIDTH - 20);
-    this.player.y = Phaser.Math.Clamp(this.player.y, 20, GAME_HEIGHT - 20);
+    // Keep the sprite fully on screen.
+    this.player.x = Phaser.Math.Clamp(this.player.x, this.player.displayWidth / 2, GAME_WIDTH - this.player.displayWidth / 2);
+    this.player.y = Phaser.Math.Clamp(this.player.y, this.player.displayHeight / 2, GAME_HEIGHT - this.player.displayHeight / 2);
   }
 }
 
