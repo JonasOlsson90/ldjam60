@@ -2,6 +2,10 @@
 const GAME_WIDTH = 800;
 const GAME_HEIGHT = 600;
 
+// How close (in px) the player's center must be to the top + left edges for
+// the navigation panel to open.
+const CORNER_ZONE = 40;
+
 // --- Main scene -------------------------------------------------------------
 class MainScene extends Phaser.Scene {
   constructor() {
@@ -53,13 +57,48 @@ class MainScene extends Phaser.Scene {
     this.player = this.add.sprite(GAME_WIDTH / 2, GAME_HEIGHT, 'player').setDepth(10);
     this.player.y = GAME_HEIGHT - this.player.displayHeight / 2;
 
-    this.anims.create({
-      key: 'idle',
-      frames: this.anims.generateFrameNumbers('player', { start: 0, end: 1 }),
-      frameRate: 4,
-      repeat: -1,
-    });
+    // The 'idle' animation is global to the game, so only register it once —
+    // the main scene is restarted when returning from a minigame.
+    if (!this.anims.exists('idle')) {
+      this.anims.create({
+        key: 'idle',
+        frames: this.anims.generateFrameNumbers('player', { start: 0, end: 1 }),
+        frameRate: 4,
+        repeat: -1,
+      });
+    }
     this.player.play('idle');
+
+    // Navigation panel: a black backdrop that opens when the player reaches
+    // the top-left corner. Minigame buttons and other features will be added
+    // on top of it later. For now, clicking it launches the placeholder minigame.
+    this.navPanel = this.add
+      .rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000000)
+      .setDepth(100)
+      .setVisible(false);
+    this.navPanel.on('pointerdown', () => {
+      if (this.navPanel.visible) this.scene.start('Minigame');
+    });
+    this.navHint = this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'Click to enter the minigame\nESC to go back', {
+        fontFamily: 'monospace',
+        fontSize: '24px',
+        color: '#ffffff',
+        align: 'center',
+      })
+      .setOrigin(0.5)
+      .setDepth(101)
+      .setVisible(false);
+    this.panelOpen = false;
+
+    // Esc closes the navigation panel: step the player out of the corner so
+    // the panel hides again on the next update.
+    this.input.keyboard.on('keydown-ESC', () => {
+      if (this.panelOpen) {
+        this.player.x = GAME_WIDTH / 2;
+        this.player.y = GAME_HEIGHT / 2;
+      }
+    });
 
     this.cursors = this.input.keyboard.createCursorKeys();
   }
@@ -74,6 +113,59 @@ class MainScene extends Phaser.Scene {
     // Keep the sprite fully on screen.
     this.player.x = Phaser.Math.Clamp(this.player.x, this.player.displayWidth / 2, GAME_WIDTH - this.player.displayWidth / 2);
     this.player.y = Phaser.Math.Clamp(this.player.y, this.player.displayHeight / 2, GAME_HEIGHT - this.player.displayHeight / 2);
+
+    // Open the navigation panel when the player reaches the top-left corner,
+    // and hide it again once they leave that zone.
+    const inCorner =
+      this.player.x <= this.player.displayWidth / 2 + CORNER_ZONE &&
+      this.player.y <= this.player.displayHeight / 2 + CORNER_ZONE;
+    if (inCorner !== this.panelOpen) {
+      this.panelOpen = inCorner;
+      this.navPanel.setVisible(inCorner);
+      this.navHint.setVisible(inCorner);
+      if (inCorner) {
+        this.navPanel.setInteractive();
+      } else {
+        this.navPanel.disableInteractive();
+      }
+    }
+  }
+}
+
+// --- Placeholder minigame scene ----------------------------------------------
+// A stand-in minigame so the "enter minigame / Esc to leave" flow can be tested.
+// Replace this with the real minigames later (each one should return to
+// 'MainScene' on Esc).
+class MinigameScene extends Phaser.Scene {
+  constructor() {
+    super({ key: 'Minigame' });
+  }
+
+  create() {
+    this.cameras.main.setBackgroundColor('#2b2b2b');
+
+    this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 20, 'MINIGAME (placeholder)', {
+        fontFamily: 'monospace',
+        fontSize: '32px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5)
+      .setDepth(10);
+
+    this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 20, 'Press ESC to return to the ship', {
+        fontFamily: 'monospace',
+        fontSize: '18px',
+        color: '#8d99ae',
+      })
+      .setOrigin(0.5)
+      .setDepth(10);
+
+    // Esc returns to the main ship screen.
+    this.input.keyboard.on('keydown-ESC', () => {
+      this.scene.start('MainScene');
+    });
   }
 }
 
@@ -94,7 +186,7 @@ const config = {
       debug: false,
     },
   },
-  scene: [MainScene],
+  scene: [MainScene, MinigameScene],
 };
 
 const game = new Phaser.Game(config);
