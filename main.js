@@ -2,8 +2,8 @@
 const GAME_WIDTH = 800;
 const GAME_HEIGHT = 600;
 
-// How close (in px) the player's center must be to the top + left edges for
-// the navigation panel to open.
+// How close (in px) the player's center must be to the top + left edges to
+// enter the minigame.
 const CORNER_ZONE = 40;
 
 // --- Main scene -------------------------------------------------------------
@@ -69,36 +69,9 @@ class MainScene extends Phaser.Scene {
     }
     this.player.play('idle');
 
-    // Navigation panel: a black backdrop that opens when the player reaches
-    // the top-left corner. Minigame buttons and other features will be added
-    // on top of it later. For now, clicking it launches the placeholder minigame.
-    this.navPanel = this.add
-      .rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000000)
-      .setDepth(100)
-      .setVisible(false);
-    this.navPanel.on('pointerdown', () => {
-      if (this.navPanel.visible) this.scene.start('Minigame');
-    });
-    this.navHint = this.add
-      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'Click to enter the minigame\nESC to go back', {
-        fontFamily: 'monospace',
-        fontSize: '24px',
-        color: '#ffffff',
-        align: 'center',
-      })
-      .setOrigin(0.5)
-      .setDepth(101)
-      .setVisible(false);
-    this.panelOpen = false;
-
-    // Esc closes the navigation panel: step the player out of the corner so
-    // the panel hides again on the next update.
-    this.input.keyboard.on('keydown-ESC', () => {
-      if (this.panelOpen) {
-        this.player.x = GAME_WIDTH / 2;
-        this.player.y = GAME_HEIGHT / 2;
-      }
-    });
+    // Set once the corner triggers the minigame, so the scene transition is
+    // only queued once (reset on every scene start).
+    this._leaving = false;
 
     this.cursors = this.input.keyboard.createCursorKeys();
   }
@@ -114,20 +87,13 @@ class MainScene extends Phaser.Scene {
     this.player.x = Phaser.Math.Clamp(this.player.x, this.player.displayWidth / 2, GAME_WIDTH - this.player.displayWidth / 2);
     this.player.y = Phaser.Math.Clamp(this.player.y, this.player.displayHeight / 2, GAME_HEIGHT - this.player.displayHeight / 2);
 
-    // Open the navigation panel when the player reaches the top-left corner,
-    // and hide it again once they leave that zone.
+    // Enter the minigame as soon as the player reaches the top-left corner.
     const inCorner =
       this.player.x <= this.player.displayWidth / 2 + CORNER_ZONE &&
       this.player.y <= this.player.displayHeight / 2 + CORNER_ZONE;
-    if (inCorner !== this.panelOpen) {
-      this.panelOpen = inCorner;
-      this.navPanel.setVisible(inCorner);
-      this.navHint.setVisible(inCorner);
-      if (inCorner) {
-        this.navPanel.setInteractive();
-      } else {
-        this.navPanel.disableInteractive();
-      }
+    if (inCorner && !this._leaving) {
+      this._leaving = true;
+      this.scene.start('Minigame');
     }
   }
 }
@@ -141,26 +107,13 @@ class MinigameScene extends Phaser.Scene {
     super({ key: 'Minigame' });
   }
 
+  preload() {
+    this.load.image('comrad64', 'imgs/comrad64.png');
+  }
+
   create() {
-    this.cameras.main.setBackgroundColor('#2b2b2b');
-
-    this.add
-      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 20, 'MINIGAME (placeholder)', {
-        fontFamily: 'monospace',
-        fontSize: '32px',
-        color: '#ffffff',
-      })
-      .setOrigin(0.5)
-      .setDepth(10);
-
-    this.add
-      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 20, 'Press ESC to return to the ship', {
-        fontFamily: 'monospace',
-        fontSize: '18px',
-        color: '#8d99ae',
-      })
-      .setOrigin(0.5)
-      .setDepth(10);
+    // Full-screen background (source is 800x600, the game resolution).
+    this.add.image(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'comrad64').setDepth(0);
 
     // Esc returns to the main ship screen.
     this.input.keyboard.on('keydown-ESC', () => {
