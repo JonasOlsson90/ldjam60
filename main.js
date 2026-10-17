@@ -165,6 +165,9 @@ class MainScene extends Phaser.Scene {
     }
     // Vertical velocity (px/s) while falling; 0 when standing or climbing.
     this.playerVy = 0;
+    // True while a jump is airborne (so the ladder's hang doesn't grab the
+    // player mid-jump); cleared on landing or when grabbing the ladder.
+    this.jumpInAir = false;
 
     // The animations are global to the game, so only register them once —
     // the main scene is restarted when returning from the navigation screen.
@@ -209,8 +212,10 @@ class MainScene extends Phaser.Scene {
     // transition is only queued once (reset on every scene start).
     this._leaving = false;
 
-    // Set by the space bar (consumed in update): request a small jump.
+    // Set by the space bar or the controller's X button (consumed in update):
+    // request a small jump.
     this.jumpRequested = false;
+    this.padXWasDown = false;
     this.input.keyboard.on('keydown-SPACE', () => {
       this.jumpRequested = true;
     });
@@ -222,9 +227,18 @@ class MainScene extends Phaser.Scene {
     const dt = delta / 1000;
     const p = this.player;
 
+    // Input: keyboard (arrows) or an Xbox controller (D-pad moves, X jumps).
+    const pad = this.input.gamepad ? this.input.gamepad.pad1 : null;
+    const moveLeft = this.cursors.left.isDown || !!(pad && pad.left);
+    const moveRight = this.cursors.right.isDown || !!(pad && pad.right);
+    const moveUp = this.cursors.up.isDown || !!(pad && pad.up);
+    const moveDown = this.cursors.down.isDown || !!(pad && pad.down);
+    if (pad && pad.X && !this.padXWasDown) this.jumpRequested = true;
+    this.padXWasDown = !!(pad && pad.X);
+
     // Walking (always possible).
-    if (this.cursors.left.isDown) p.x -= MOVE_SPEED * dt;
-    if (this.cursors.right.isDown) p.x += MOVE_SPEED * dt;
+    if (moveLeft) p.x -= MOVE_SPEED * dt;
+    if (moveRight) p.x += MOVE_SPEED * dt;
     p.x = Phaser.Math.Clamp(p.x, p.displayWidth / 2, GAME_WIDTH - p.displayWidth / 2);
 
     const feet = () => p.y + p.displayHeight / 2;
@@ -232,25 +246,30 @@ class MainScene extends Phaser.Scene {
     const onFloor =
       Math.abs(feet() - FLOOR_TOP) < 2 || Math.abs(feet() - FLOOR_BOTTOM) < 2;
 
-    if (onLadder && (this.cursors.up.isDown || this.cursors.down.isDown)) {
+    if (onLadder && (moveUp || moveDown)) {
       // Climbing the ladder: no gravity while moving along it. The player may
       // climb as high as they want — even out of the top of the screen; the
-      // lower end of the ladder is the bottom floor.
+      // lower end of the ladder is the bottom floor. Grabbing the ladder
+      // cancels any ongoing jump.
       this.playerVy = 0;
-      if (this.cursors.up.isDown) p.y -= CLIMB_SPEED * dt;
+      this.jumpInAir = false;
+      if (moveUp) p.y -= CLIMB_SPEED * dt;
       else p.y += CLIMB_SPEED * dt;
       p.y = Phaser.Math.Clamp(
         p.y,
         -p.displayHeight / 2,
         FLOOR_BOTTOM - p.displayHeight / 2
       );
-    } else if (onLadder && !onFloor) {
-      // Hanging on the ladder between the floors.
+    } else if (onLadder && !onFloor && !this.jumpInAir) {
+      // Hanging on the ladder between the floors (not while a jump is
+      // airborne — then gravity rules).
       this.playerVy = 0;
     } else {
-      // A space-bar press while standing on a floor starts a small jump.
+      // A space-bar press or X button while standing on a floor starts a
+      // small jump.
       if (this.jumpRequested && onFloor) {
         this.playerVy = -JUMP_SPEED;
+        this.jumpInAir = true;
       }
 
       // Gravity: accelerate downwards and land on the highest floor whose
@@ -263,9 +282,11 @@ class MainScene extends Phaser.Scene {
       if (feet() >= FLOOR_TOP && prevFeet <= FLOOR_TOP + 4) {
         p.y = FLOOR_TOP - p.displayHeight / 2;
         this.playerVy = 0;
+        this.jumpInAir = false;
       } else if (feet() >= FLOOR_BOTTOM) {
         p.y = FLOOR_BOTTOM - p.displayHeight / 2;
         this.playerVy = 0;
+        this.jumpInAir = false;
       }
     }
 
@@ -288,11 +309,11 @@ class MainScene extends Phaser.Scene {
 
     // Sprite state: climbing (on the ladder, moving or hanging mid-air),
     // walking, or idle. Switch the animation only on state changes.
-    const moving = this.cursors.up.isDown || this.cursors.down.isDown;
+    const moving = moveUp || moveDown;
     const state =
       onLadder && (moving || !onFloor)
         ? 'climb'
-        : this.cursors.left.isDown || this.cursors.right.isDown
+        : moveLeft || moveRight
         ? 'walk'
         : 'idle';
     if (state !== this.playerState) {
@@ -306,7 +327,7 @@ class MainScene extends Phaser.Scene {
     }
     if (state === 'walk') {
       // Face the walking direction (flipped when walking left).
-      p.setFlipX(this.cursors.left.isDown);
+      p.setFlipX(moveLeft);
     } else if (state === 'climb' && moving) {
       // Flip the climbing frame back and forth while climbing.
       p.setFlipX(Math.floor(time / 250) % 2 === 0);
@@ -434,6 +455,9 @@ const config = {
   // Nearest-neighbor filtering for the whole game: the 400x300 background
   // upscaled 2x to 800x600 stays crisp.
   pixelArt: true,
+  input: {
+    gamepad: true,
+  },
   physics: {
     default: 'arcade',
     arcade: {
