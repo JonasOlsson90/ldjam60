@@ -138,17 +138,29 @@ class MainScene extends Phaser.Scene {
     // Vertical velocity (px/s) while falling; 0 when standing or climbing.
     this.playerVy = 0;
 
-    // The 'idle' animation is global to the game, so only register it once —
+    // The animations are global to the game, so only register them once —
     // the main scene is restarted when returning from the navigation screen.
+    // Spritesheet: frames 1+2 = idle, frames 1+3 = walking, frame 4 = climbing.
     if (!this.anims.exists('idle')) {
       this.anims.create({
         key: 'idle',
-        frames: this.anims.generateFrameNumbers('player', { start: 0, end: 1 }),
+        frames: this.anims.generateFrameNumbers('player', { frames: [0, 1] }),
         frameRate: 4,
         repeat: -1,
       });
     }
+    if (!this.anims.exists('walk')) {
+      this.anims.create({
+        key: 'walk',
+        frames: this.anims.generateFrameNumbers('player', { frames: [0, 2] }),
+        frameRate: 8,
+        repeat: -1,
+      });
+    }
     this.player.play('idle');
+    // Current sprite state ('idle' | 'walk' | 'climb'), to only switch the
+    // animation when the state actually changes.
+    this.playerState = 'idle';
 
     // Debug overlay: a transparent, always-on-top view of the navigation
     // screen (monitor screen area, goal box, ship). The simulation behind it
@@ -226,6 +238,32 @@ class MainScene extends Phaser.Scene {
 
     // The jump request is consumed (or discarded) every frame.
     this.jumpRequested = false;
+
+    // Sprite state: climbing (on the ladder, moving or hanging mid-air),
+    // walking, or idle. Switch the animation only on state changes.
+    const moving = this.cursors.up.isDown || this.cursors.down.isDown;
+    const state =
+      onLadder && (moving || !onFloor)
+        ? 'climb'
+        : this.cursors.left.isDown || this.cursors.right.isDown
+        ? 'walk'
+        : 'idle';
+    if (state !== this.playerState) {
+      this.playerState = state;
+      if (state === 'climb') {
+        p.anims.stop();
+        p.setFrame(3);
+      } else {
+        p.play(state);
+      }
+    }
+    if (state === 'walk') {
+      // Face the walking direction (flipped when walking left).
+      p.setFlipX(this.cursors.left.isDown);
+    } else if (state === 'climb' && moving) {
+      // Flip the climbing frame back and forth while climbing.
+      p.setFlipX(Math.floor(time / 250) % 2 === 0);
+    }
 
     // Advance the navigation simulation and its debug overlay.
     updateNavSim(dt);
