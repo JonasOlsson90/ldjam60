@@ -43,13 +43,19 @@ const GOAL_Y = MONITOR_SCREEN.y + GOAL_MARGIN + GOAL_SIZE / 2;
 // steer the ship.
 const SHIP_SPEED = 9; // px/s
 const navSim = {
-  // Position (game px, inside MONITOR_SCREEN) and pointing direction in
-  // radians (0 = right, positive = clockwise). The ship constantly moves in
-  // the direction it points to. Starts in the bottom left of the screen,
-  // pointing up towards the goal.
+  // Real-time position (game px, inside MONITOR_SCREEN) and pointing
+  // direction in radians (0 = right, positive = clockwise). The ship
+  // constantly moves in the direction it points to. Starts in the bottom
+  // left of the screen, pointing up towards the goal.
   shipX: MONITOR_SCREEN.x + GOAL_MARGIN + 20,
   shipY: MONITOR_SCREEN.y + MONITOR_SCREEN.height - GOAL_MARGIN - 20,
   angle: -Math.PI / 2,
+  // The latest MEASURED position: this is what the navigation screen (and
+  // its debug overlay) displays — not the real-time position. It is only
+  // updated when the player climbs out of the top of the screen to take a
+  // measurement.
+  measuredX: MONITOR_SCREEN.x + GOAL_MARGIN + 20,
+  measuredY: MONITOR_SCREEN.y + MONITOR_SCREEN.height - GOAL_MARGIN - 20,
 };
 
 function updateNavSim(dt) {
@@ -71,7 +77,8 @@ function createNavShip(scene, alpha, depth) {
 }
 
 function syncNavShip(ship) {
-  ship.setPosition(navSim.shipX, navSim.shipY);
+  // The display shows the latest measured position, not the live one.
+  ship.setPosition(navSim.measuredX, navSim.measuredY);
   ship.setRotation(navSim.angle);
 }
 
@@ -201,14 +208,14 @@ class MainScene extends Phaser.Scene {
 
     if (onLadder && (this.cursors.up.isDown || this.cursors.down.isDown)) {
       // Climbing the ladder: no gravity while moving along it. The player may
-      // climb as high as they want (up to the top of the screen); the lower
-      // end of the ladder is the bottom floor.
+      // climb as high as they want — even out of the top of the screen; the
+      // lower end of the ladder is the bottom floor.
       this.playerVy = 0;
       if (this.cursors.up.isDown) p.y -= CLIMB_SPEED * dt;
       else p.y += CLIMB_SPEED * dt;
       p.y = Phaser.Math.Clamp(
         p.y,
-        p.displayHeight / 2,
+        -p.displayHeight / 2,
         FLOOR_BOTTOM - p.displayHeight / 2
       );
     } else if (onLadder && !onFloor) {
@@ -239,6 +246,17 @@ class MainScene extends Phaser.Scene {
     // The jump request is consumed (or discarded) every frame.
     this.jumpRequested = false;
 
+    // Advance the navigation simulation (the real-time ship position).
+    updateNavSim(dt);
+
+    // Taking a measurement: while the player is outside the top of the
+    // screen (climbed up the ladder), the navigation display's measured
+    // position is updated to the ship's current real position.
+    if (feet() <= 0) {
+      navSim.measuredX = navSim.shipX;
+      navSim.measuredY = navSim.shipY;
+    }
+
     // Sprite state: climbing (on the ladder, moving or hanging mid-air),
     // walking, or idle. Switch the animation only on state changes.
     const moving = this.cursors.up.isDown || this.cursors.down.isDown;
@@ -265,8 +283,7 @@ class MainScene extends Phaser.Scene {
       p.setFlipX(Math.floor(time / 250) % 2 === 0);
     }
 
-    // Advance the navigation simulation and its debug overlay.
-    updateNavSim(dt);
+    // Sync the debug overlay with the (measured) navigation display.
     syncNavShip(this.navShipDebug);
 
     // Open the navigation screen when the player walks up to the computer.
