@@ -531,6 +531,8 @@ class SteeringWheelScene extends Phaser.Scene {
     this.keys = {
       a: this.input.keyboard.addKey('A'),
       d: this.input.keyboard.addKey('D'),
+      left: this.input.keyboard.addKey('LEFT'),
+      right: this.input.keyboard.addKey('RIGHT'),
     };
 
     // Esc returns to the main ship screen.
@@ -546,11 +548,14 @@ class SteeringWheelScene extends Phaser.Scene {
     updateNavSim(dt);
     updatePowerSim(dt);
 
-    // Turn the steering wheel with A/D or the controller's D-pad left/right.
+    // Turn the steering wheel with A/D, the left/right arrow keys, or the
+    // controller's D-pad left/right.
     const pad = this.input.gamepad ? this.input.gamepad.pad1 : null;
-    const steer =
-      (this.keys.d.isDown || !!(pad && pad.right) ? 1 : 0) -
-      (this.keys.a.isDown || !!(pad && pad.left) ? 1 : 0);
+    const steerRight =
+      this.keys.d.isDown || this.keys.right.isDown || !!(pad && pad.right);
+    const steerLeft =
+      this.keys.a.isDown || this.keys.left.isDown || !!(pad && pad.left);
+    const steer = (steerRight ? 1 : 0) - (steerLeft ? 1 : 0);
     if (steer !== 0) {
       navSim.wheel = Phaser.Math.Clamp(
         navSim.wheel + steer * WHEEL_TURN_SPEED * dt,
