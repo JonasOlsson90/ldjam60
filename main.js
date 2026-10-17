@@ -8,6 +8,11 @@ const GAME_HEIGHT = 600;
 // enters this area.
 const COMPUTER_ZONE = { x: 40, y: 150, width: 160, height: 110 };
 
+// Remembers where the player stood when opening the navigation screen, so
+// they return to the same spot afterwards (nudged right, out of the trigger
+// zone, so the screen doesn't immediately reopen).
+let playerReturnPos = null;
+
 // Ship geometry (game coordinates, measured from ship_interior.png, which is
 // displayed upscaled 2x): the heights of the two floors (the player's feet
 // when standing on them) and the horizontal span of the ladder connecting
@@ -28,6 +33,47 @@ const MONITOR_SCREEN = { x: 56, y: 63, width: 684, height: 464 };
 // the mission.
 const GOAL_SIZE = 24;
 const GOAL_MARGIN = 16;
+const GOAL_X = MONITOR_SCREEN.x + MONITOR_SCREEN.width - GOAL_MARGIN - GOAL_SIZE / 2;
+const GOAL_Y = MONITOR_SCREEN.y + GOAL_MARGIN + GOAL_SIZE / 2;
+
+// --- Navigation simulation ---------------------------------------------------
+// The ship shown on the navigation screen. This simulation ALWAYS runs in the
+// background (whatever scene is active advances it); the scenes only
+// visualize it. Later, other minigames will decide what the screen shows and
+// steer the ship.
+const SHIP_SPEED = 9; // px/s
+const navSim = {
+  // Position (game px, inside MONITOR_SCREEN) and pointing direction in
+  // radians (0 = right, positive = clockwise). The ship constantly moves in
+  // the direction it points to. Starts in the bottom left of the screen,
+  // pointing up towards the goal.
+  shipX: MONITOR_SCREEN.x + GOAL_MARGIN + 20,
+  shipY: MONITOR_SCREEN.y + MONITOR_SCREEN.height - GOAL_MARGIN - 20,
+  angle: -Math.PI / 2,
+};
+
+function updateNavSim(dt) {
+  navSim.shipX += Math.cos(navSim.angle) * SHIP_SPEED * dt;
+  navSim.shipY += Math.sin(navSim.angle) * SHIP_SPEED * dt;
+  // Wrap around the monitor screen edges so the ship never disappears.
+  const s = MONITOR_SCREEN;
+  if (navSim.shipX < s.x) navSim.shipX += s.width;
+  else if (navSim.shipX > s.x + s.width) navSim.shipX -= s.width;
+  if (navSim.shipY < s.y) navSim.shipY += s.height;
+  else if (navSim.shipY > s.y + s.height) navSim.shipY -= s.height;
+}
+
+// The ship is a small red triangle whose tip points along navSim.angle.
+function createNavShip(scene, alpha, depth) {
+  return scene.add
+    .triangle(navSim.shipX, navSim.shipY, 14, 0, -9, -9, -9, 9, 0xff0000, alpha)
+    .setDepth(depth);
+}
+
+function syncNavShip(ship) {
+  ship.setPosition(navSim.shipX, navSim.shipY);
+  ship.setRotation(navSim.angle);
+}
 
 // --- Main scene -------------------------------------------------------------
 class MainScene extends Phaser.Scene {
@@ -78,7 +124,17 @@ class MainScene extends Phaser.Scene {
     // Player: the character sprite, standing at the bottom-center of the
     // screen (feet on the edge) with the 2-frame idle animation looping.
     this.player = this.add.sprite(GAME_WIDTH / 2, GAME_HEIGHT, 'player').setDepth(10);
-    this.player.y = FLOOR_BOTTOM - this.player.displayHeight / 2;
+    if (playerReturnPos) {
+      // Returning from the navigation screen: restore the position, but
+      // nudge right out of the computer's trigger zone.
+      this.player.x = Math.max(
+        playerReturnPos.x,
+        COMPUTER_ZONE.x + COMPUTER_ZONE.width + this.player.displayWidth / 2 + 4
+      );
+      this.player.y = playerReturnPos.y;
+    } else {
+      this.player.y = FLOOR_BOTTOM - this.player.displayHeight / 2;
+    }
     // Vertical velocity (px/s) while falling; 0 when standing or climbing.
     this.playerVy = 0;
 
@@ -93,6 +149,16 @@ class MainScene extends Phaser.Scene {
       });
     }
     this.player.play('idle');
+
+    // Debug overlay: a transparent, always-on-top view of the navigation
+    // screen (monitor screen area, goal box, ship). The simulation behind it
+    // always runs, no matter which scene is active.
+    const ov = MONITOR_SCREEN;
+    this.add
+      .rectangle(ov.x + ov.width / 2, ov.y + ov.height / 2, ov.width, ov.height, 0xffffff, 0.06)
+      .setDepth(1000);
+    this.add.rectangle(GOAL_X, GOAL_Y, GOAL_SIZE, GOAL_SIZE, 0x00ff00, 0.5).setDepth(1001);
+    this.navShipDebug = createNavShip(this, 0.6, 1002);
 
     // Set once the computer triggers the navigation screen, so the scene
     // transition is only queued once (reset on every scene start).
@@ -161,6 +227,10 @@ class MainScene extends Phaser.Scene {
     // The jump request is consumed (or discarded) every frame.
     this.jumpRequested = false;
 
+    // Advance the navigation simulation and its debug overlay.
+    updateNavSim(dt);
+    syncNavShip(this.navShipDebug);
+
     // Open the navigation screen when the player walks up to the computer.
     const inZone =
       this.player.x >= COMPUTER_ZONE.x &&
@@ -169,6 +239,7 @@ class MainScene extends Phaser.Scene {
       this.player.y <= COMPUTER_ZONE.y + COMPUTER_ZONE.height;
     if (inZone && !this._leaving) {
       this._leaving = true;
+      playerReturnPos = { x: this.player.x, y: this.player.y };
       this.scene.start('navigationScreen');
     }
   }
@@ -191,17 +262,23 @@ class NavigationScreenScene extends Phaser.Scene {
     this.add.image(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'comrad64').setDepth(0);
 
     // The goal: a static square near the top-right corner of the monitor
-    // screen, with a small margin. The ship will navigate towards it later.
-    const goalX = MONITOR_SCREEN.x + MONITOR_SCREEN.width - GOAL_MARGIN - GOAL_SIZE / 2;
-    const goalY = MONITOR_SCREEN.y + GOAL_MARGIN + GOAL_SIZE / 2;
-    this.goal = this.add
-      .rectangle(goalX, goalY, GOAL_SIZE, GOAL_SIZE, 0x00ff00)
-      .setDepth(10);
+    // screen, with a small margin. The ship navigates towards it.
+    this.goal = this.add.rectangle(GOAL_X, GOAL_Y, GOAL_SIZE, GOAL_SIZE, 0x00ff00).setDepth(10);
+
+    // The ship: a red triangle that moves in the direction it points to
+    // (driven by the always-running navigation simulation).
+    this.ship = createNavShip(this, 1, 10);
 
     // Esc returns to the main ship screen.
     this.input.keyboard.on('keydown-ESC', () => {
       this.scene.start('MainScene');
     });
+  }
+
+  update(time, delta) {
+    // Advance the shared navigation simulation and show the ship's state.
+    updateNavSim(delta / 1000);
+    syncNavShip(this.ship);
   }
 }
 
