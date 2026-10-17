@@ -2,9 +2,19 @@
 const GAME_WIDTH = 800;
 const GAME_HEIGHT = 600;
 
-// How close (in px) the player's center must be to the top + left edges to
-// enter the minigame.
-const CORNER_ZONE = 40;
+// Minigame trigger: the area in front of the computer on the desk in the
+// ship's top-left cabin (game coordinates, measured from ship_interior.png,
+// which is upscaled 2x). The minigame starts when the player's center enters
+// this area.
+const COMPUTER_ZONE = { x: 40, y: 150, width: 160, height: 110 };
+
+// Minigame: bounds of the monitor's screen inside comrad64.png (measured from
+// the image). This is the play field the ship will navigate in later.
+const MONITOR_SCREEN = { x: 56, y: 63, width: 684, height: 464 };
+// The goal square at the top-right of the monitor screen: the end station of
+// the mission.
+const GOAL_SIZE = 24;
+const GOAL_MARGIN = 16;
 
 // --- Main scene -------------------------------------------------------------
 class MainScene extends Phaser.Scene {
@@ -87,11 +97,13 @@ class MainScene extends Phaser.Scene {
     this.player.x = Phaser.Math.Clamp(this.player.x, this.player.displayWidth / 2, GAME_WIDTH - this.player.displayWidth / 2);
     this.player.y = Phaser.Math.Clamp(this.player.y, this.player.displayHeight / 2, GAME_HEIGHT - this.player.displayHeight / 2);
 
-    // Enter the minigame as soon as the player reaches the top-left corner.
-    const inCorner =
-      this.player.x <= this.player.displayWidth / 2 + CORNER_ZONE &&
-      this.player.y <= this.player.displayHeight / 2 + CORNER_ZONE;
-    if (inCorner && !this._leaving) {
+    // Enter the minigame when the player walks up to the computer.
+    const inZone =
+      this.player.x >= COMPUTER_ZONE.x &&
+      this.player.x <= COMPUTER_ZONE.x + COMPUTER_ZONE.width &&
+      this.player.y >= COMPUTER_ZONE.y &&
+      this.player.y <= COMPUTER_ZONE.y + COMPUTER_ZONE.height;
+    if (inZone && !this._leaving) {
       this._leaving = true;
       this.scene.start('Minigame');
     }
@@ -114,6 +126,14 @@ class MinigameScene extends Phaser.Scene {
   create() {
     // Full-screen background (source is 800x600, the game resolution).
     this.add.image(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'comrad64').setDepth(0);
+
+    // The goal: a static square near the top-right corner of the monitor
+    // screen, with a small margin. The ship will navigate towards it later.
+    const goalX = MONITOR_SCREEN.x + MONITOR_SCREEN.width - GOAL_MARGIN - GOAL_SIZE / 2;
+    const goalY = MONITOR_SCREEN.y + GOAL_MARGIN + GOAL_SIZE / 2;
+    this.goal = this.add
+      .rectangle(goalX, goalY, GOAL_SIZE, GOAL_SIZE, 0x00ff00)
+      .setDepth(10);
 
     // Esc returns to the main ship screen.
     this.input.keyboard.on('keydown-ESC', () => {
