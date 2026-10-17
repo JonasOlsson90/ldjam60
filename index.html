@@ -10,15 +10,28 @@
       padding: 0;
       height: 100%;
       overflow: hidden;
-      background: #1a1a1a;
+      background: black;
+      user-select: none;
     }
     body {
       display: flex;
       align-items: center;
       justify-content: center;
     }
+    /* Scale the canvas to fill the page while keeping its 4:3 aspect
+       ratio (like Phaser.Scale.FIT in ldjam59). Phaser's scale manager
+       pins #game to the game size with inline styles, so the overrides
+       need !important. */
     #game {
-      box-shadow: 0 0 24px rgba(0, 0, 0, 0.6);
+      width: auto !important;
+      height: auto !important;
+      transform: none !important;
+    }
+    #game canvas {
+      width: min(100vw, calc(100vh * 4 / 3)) !important;
+      height: auto !important;
+      aspect-ratio: 4 / 3;
+      image-rendering: pixelated;
     }
   </style>
 </head>
