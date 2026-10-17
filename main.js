@@ -8,9 +8,13 @@ const GAME_HEIGHT = 600;
 // enters this area.
 const COMPUTER_ZONE = { x: 40, y: 150, width: 160, height: 110 };
 
-// Remembers where the player stood when opening the navigation screen, so
-// they return to the same spot afterwards (nudged right, out of the trigger
-// zone, so the screen doesn't immediately reopen).
+// Electricity generator trigger: the area around the bike in the ship's
+// bottom-left corner (game coordinates, measured from ship_interior.png).
+const BIKE_ZONE = { x: 30, y: 440, width: 250, height: 130 };
+
+// Remembers where the player stood when opening a minigame, so they return to
+// the same spot afterwards (nudged right, out of the minigame's trigger zone,
+// so it doesn't immediately reopen).
 let playerReturnPos = null;
 
 // Ship geometry (game coordinates, measured from ship_interior.png, which is
@@ -82,6 +86,22 @@ function syncNavShip(ship) {
   ship.setRotation(navSim.angle);
 }
 
+// --- Power simulation ----------------------------------------------------------
+// The ship's battery. It always drains slowly (whatever scene is active
+// advances it); pedaling the bike in the electricityGenerator minigame
+// recharges it.
+const BATTERY_MAX = 100;
+// Global speed factor for battery power depletion and generation
+// (1 = normal speed, lower = slower).
+const POWER_SPEED = 0.5;
+const BATTERY_DRAIN = 1; // % per second (before POWER_SPEED)
+const PEDAL_BOOST = 2; // % per pedal stroke (before POWER_SPEED)
+const powerSim = { battery: BATTERY_MAX }; // 0..100 %
+
+function updatePowerSim(dt) {
+  powerSim.battery = Math.max(0, powerSim.battery - BATTERY_DRAIN * POWER_SPEED * dt);
+}
+
 // --- Main scene -------------------------------------------------------------
 class MainScene extends Phaser.Scene {
   constructor() {
@@ -132,11 +152,12 @@ class MainScene extends Phaser.Scene {
     // screen (feet on the edge) with the 2-frame idle animation looping.
     this.player = this.add.sprite(GAME_WIDTH / 2, GAME_HEIGHT, 'player').setDepth(10);
     if (playerReturnPos) {
-      // Returning from the navigation screen: restore the position, but
-      // nudge right out of the computer's trigger zone.
+      // Returning from a minigame: restore the position, but nudge right out
+      // of the minigame's trigger zone so it doesn't immediately reopen.
+      const z = playerReturnPos.zone;
       this.player.x = Math.max(
         playerReturnPos.x,
-        COMPUTER_ZONE.x + COMPUTER_ZONE.width + this.player.displayWidth / 2 + 4
+        z.x + z.width + this.player.displayWidth / 2 + 4
       );
       this.player.y = playerReturnPos.y;
     } else {
@@ -178,6 +199,11 @@ class MainScene extends Phaser.Scene {
       .setDepth(1000);
     this.add.rectangle(GOAL_X, GOAL_Y, GOAL_SIZE, GOAL_SIZE, 0x00ff00, 0.5).setDepth(1001);
     this.navShipDebug = createNavShip(this, 0.6, 1002);
+
+    // Debug: battery status, always visible in the top left of the screen.
+    this.batteryDebug = this.add
+      .text(10, 10, '', { fontFamily: 'monospace', fontSize: '16px', color: '#ffffff' })
+      .setDepth(1003);
 
     // Set once the computer triggers the navigation screen, so the scene
     // transition is only queued once (reset on every scene start).
@@ -248,6 +274,9 @@ class MainScene extends Phaser.Scene {
 
     // Advance the navigation simulation (the real-time ship position).
     updateNavSim(dt);
+    // The battery always drains slowly; show it in the debug display.
+    updatePowerSim(dt);
+    this.batteryDebug.setText('Battery: ' + Math.round(powerSim.battery) + '%');
 
     // Taking a measurement: while the player is outside the top of the
     // screen (climbed up the ladder), the navigation display's measured
@@ -286,16 +315,26 @@ class MainScene extends Phaser.Scene {
     // Sync the debug overlay with the (measured) navigation display.
     syncNavShip(this.navShipDebug);
 
-    // Open the navigation screen when the player walks up to the computer.
-    const inZone =
-      this.player.x >= COMPUTER_ZONE.x &&
-      this.player.x <= COMPUTER_ZONE.x + COMPUTER_ZONE.width &&
-      this.player.y >= COMPUTER_ZONE.y &&
-      this.player.y <= COMPUTER_ZONE.y + COMPUTER_ZONE.height;
-    if (inZone && !this._leaving) {
+    // Minigame triggers: the computer opens the navigation screen, the bike
+    // opens the electricity generator.
+    const inComputer =
+      p.x >= COMPUTER_ZONE.x &&
+      p.x <= COMPUTER_ZONE.x + COMPUTER_ZONE.width &&
+      p.y >= COMPUTER_ZONE.y &&
+      p.y <= COMPUTER_ZONE.y + COMPUTER_ZONE.height;
+    const inBike =
+      p.x >= BIKE_ZONE.x &&
+      p.x <= BIKE_ZONE.x + BIKE_ZONE.width &&
+      p.y >= BIKE_ZONE.y &&
+      p.y <= BIKE_ZONE.y + BIKE_ZONE.height;
+    if (!this._leaving && (inComputer || inBike)) {
       this._leaving = true;
-      playerReturnPos = { x: this.player.x, y: this.player.y };
-      this.scene.start('navigationScreen');
+      playerReturnPos = {
+        x: p.x,
+        y: p.y,
+        zone: inComputer ? COMPUTER_ZONE : BIKE_ZONE,
+      };
+      this.scene.start(inComputer ? 'navigationScreen' : 'electricityGenerator');
     }
   }
 }
@@ -331,9 +370,57 @@ class NavigationScreenScene extends Phaser.Scene {
   }
 
   update(time, delta) {
-    // Advance the shared navigation simulation and show the ship's state.
+    // Advance the shared simulations and show the ship's state.
     updateNavSim(delta / 1000);
+    updatePowerSim(delta / 1000);
     syncNavShip(this.ship);
+  }
+}
+
+// --- Electricity generator scene ------------------------------------------------
+// Pedal the bike to charge the ship's battery: alternate A/D or the left/right
+// arrow keys. Each alternation generates power; the battery always drains
+// slowly. For now the minigame just shows the battery level as a number.
+// Esc returns to 'MainScene'.
+class ElectricityGeneratorScene extends Phaser.Scene {
+  constructor() {
+    super({ key: 'electricityGenerator' });
+  }
+
+  create() {
+    this.cameras.main.setBackgroundColor('#101018');
+
+    // The current battery power as a plain number (0-100%).
+    this.batteryText = this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2, '', {
+        fontFamily: 'monospace',
+        fontSize: '64px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5);
+
+    // Pedaling: each time the pedal side changes, power is generated.
+    this.lastPedalSide = null;
+    const pedal = (side) => {
+      if (this.lastPedalSide !== null && side !== this.lastPedalSide) {
+        powerSim.battery = Math.min(BATTERY_MAX, powerSim.battery + PEDAL_BOOST * POWER_SPEED);
+      }
+      this.lastPedalSide = side;
+    };
+    this.input.keyboard.on('keydown-A', () => pedal('left'));
+    this.input.keyboard.on('keydown-LEFT', () => pedal('left'));
+    this.input.keyboard.on('keydown-D', () => pedal('right'));
+    this.input.keyboard.on('keydown-RIGHT', () => pedal('right'));
+
+    // Esc returns to the main ship screen.
+    this.input.keyboard.on('keydown-ESC', () => {
+      this.scene.start('MainScene');
+    });
+  }
+
+  update(time, delta) {
+    updatePowerSim(delta / 1000);
+    this.batteryText.setText(Math.round(powerSim.battery) + '%');
   }
 }
 
@@ -354,7 +441,7 @@ const config = {
       debug: false,
     },
   },
-  scene: [MainScene, NavigationScreenScene],
+  scene: [MainScene, NavigationScreenScene, ElectricityGeneratorScene],
 };
 
 const game = new Phaser.Game(config);
