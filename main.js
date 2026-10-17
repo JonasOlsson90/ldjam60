@@ -152,24 +152,6 @@ class MainScene extends Phaser.Scene {
       .setDisplaySize(GAME_WIDTH, GAME_HEIGHT)
       .setDepth(0);
 
-    this.titleText = this.add
-      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 20, 'LD Jam 60', {
-        fontFamily: 'monospace',
-        fontSize: '32px',
-        color: '#ffffff',
-      })
-      .setOrigin(0.5)
-      .setDepth(10);
-
-    this.statusText = this.add
-      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 20, '800 x 600 base', {
-        fontFamily: 'monospace',
-        fontSize: '16px',
-        color: '#8d99ae',
-      })
-      .setOrigin(0.5)
-      .setDepth(10);
-
     // Player: the character sprite, standing at the bottom-center of the
     // screen (feet on the edge) with the 2-frame idle animation looping.
     this.player = this.add.sprite(GAME_WIDTH / 2, GAME_HEIGHT, 'player').setDepth(10);
