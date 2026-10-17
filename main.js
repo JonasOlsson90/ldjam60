@@ -74,18 +74,27 @@ const navSim = {
   measuredAngle: -Math.PI / 2,
 };
 
+// Set when the ship travels outside the map boundaries: the game freezes
+// (a proper game over image comes later).
+let gameOver = false;
+
 function updateNavSim(dt) {
+  if (gameOver) return;
   // Steer like a car: the ship turns at a rate proportional to the wheel's
   // (persistent) deflection.
   navSim.angle += (navSim.wheel / MAX_WHEEL_ANGLE) * STEER_SPEED * dt;
   navSim.shipX += Math.cos(navSim.angle) * SHIP_SPEED * dt;
   navSim.shipY += Math.sin(navSim.angle) * SHIP_SPEED * dt;
-  // Wrap around the monitor screen edges so the ship never disappears.
+  // Leaving the map boundaries is game over: freeze the game.
   const s = MONITOR_SCREEN;
-  if (navSim.shipX < s.x) navSim.shipX += s.width;
-  else if (navSim.shipX > s.x + s.width) navSim.shipX -= s.width;
-  if (navSim.shipY < s.y) navSim.shipY += s.height;
-  else if (navSim.shipY > s.y + s.height) navSim.shipY -= s.height;
+  if (
+    navSim.shipX < s.x ||
+    navSim.shipX > s.x + s.width ||
+    navSim.shipY < s.y ||
+    navSim.shipY > s.y + s.height
+  ) {
+    gameOver = true;
+  }
 }
 
 // The ship is a small red triangle whose tip points along navSim.angle.
@@ -106,6 +115,22 @@ function syncNavShipLive(ship) {
   // The debug overlay shows the ship's real-time position and direction.
   ship.setPosition(navSim.shipX, navSim.shipY);
   ship.setRotation(navSim.angle);
+}
+
+// Debug game over display: a big text slapped over the whole screen of
+// whatever scene is active. Scrapped once the real game over image exists.
+function showGameOver(scene) {
+  if (scene.gameOverText && scene.gameOverText.active) return;
+  scene.gameOverText = scene.add
+    .text(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'GAME OVER', {
+      fontFamily: 'monospace',
+      fontSize: '96px',
+      color: '#ff0000',
+      stroke: '#000000',
+      strokeThickness: 8,
+    })
+    .setOrigin(0.5)
+    .setDepth(10000);
 }
 
 // --- Power simulation ----------------------------------------------------------
@@ -230,6 +255,11 @@ class MainScene extends Phaser.Scene {
   }
 
   update(time, delta) {
+    // Game over: show the debug text and freeze everything.
+    if (gameOver) {
+      showGameOver(this);
+      return;
+    }
     const dt = delta / 1000;
     const p = this.player;
 
@@ -414,6 +444,11 @@ class NavigationScreenScene extends Phaser.Scene {
   }
 
   update(time, delta) {
+    // Game over: show the debug text and freeze everything.
+    if (gameOver) {
+      showGameOver(this);
+      return;
+    }
     // Advance the shared simulations and show the ship's state.
     updateNavSim(delta / 1000);
     updatePowerSim(delta / 1000);
@@ -452,6 +487,7 @@ class ElectricityGeneratorScene extends Phaser.Scene {
     // Pedaling: each time the pedal side changes, power is generated.
     this.lastPedalSide = null;
     this.pedal = (side) => {
+      if (gameOver) return; // frozen
       if (this.lastPedalSide !== null && side !== this.lastPedalSide) {
         powerSim.battery = Math.min(BATTERY_MAX, powerSim.battery + PEDAL_BOOST * POWER_SPEED);
       }
@@ -472,6 +508,11 @@ class ElectricityGeneratorScene extends Phaser.Scene {
   }
 
   update(time, delta) {
+    // Game over: show the debug text and freeze everything.
+    if (gameOver) {
+      showGameOver(this);
+      return;
+    }
     updatePowerSim(delta / 1000);
     this.batteryText.setText(Math.round(powerSim.battery) + '%');
 
@@ -557,6 +598,11 @@ class SteeringWheelScene extends Phaser.Scene {
   }
 
   update(time, delta) {
+    // Game over: show the debug text and freeze everything.
+    if (gameOver) {
+      showGameOver(this);
+      return;
+    }
     const dt = delta / 1000;
     // The ship keeps flying (and turning, while the wheel is deflected) and
     // the battery keeps draining while steering.
