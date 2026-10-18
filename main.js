@@ -217,6 +217,19 @@ function updatePowerSim(dt) {
   powerSim.battery = Math.max(0, powerSim.battery - BATTERY_DRAIN * POWER_SPEED * dt);
 }
 
+// --- Fuel simulation -----------------------------------------------------------
+// The ship's fuel. It always drains slowly (whatever scene is active advances
+// it); finishing the distiller refuel minigame refills it to 100 %.
+const FUEL_MAX = 100;
+// Global speed factor for fuel depletion (1 = normal speed, lower = slower).
+const FUEL_SPEED = 0.5;
+const FUEL_DRAIN = 1; // % per second (before FUEL_SPEED)
+const fuelSim = { fuel: FUEL_MAX }; // 0..100 %
+
+function updateFuelSim(dt) {
+  fuelSim.fuel = Math.max(0, fuelSim.fuel - FUEL_DRAIN * FUEL_SPEED * dt);
+}
+
 // --- Main scene -------------------------------------------------------------
 class MainScene extends Phaser.Scene {
   constructor() {
@@ -324,6 +337,10 @@ class MainScene extends Phaser.Scene {
     this.batteryDebug = this.add
       .text(10, 10, '', { fontFamily: 'monospace', fontSize: '16px', color: '#ffffff' })
       .setDepth(1003);
+    // Debug: fuel status, below the battery status.
+    this.fuelDebug = this.add
+      .text(10, 30, '', { fontFamily: 'monospace', fontSize: '16px', color: '#ffffff' })
+      .setDepth(1003);
 
     // Set once the computer triggers the navigation screen, so the scene
     // transition is only queued once (reset on every scene start).
@@ -419,7 +436,9 @@ class MainScene extends Phaser.Scene {
     updateNavSim(dt);
     // The battery always drains slowly; show it in the debug display.
     updatePowerSim(dt);
+    updateFuelSim(dt);
     this.batteryDebug.setText('Battery: ' + Math.round(powerSim.battery) + '%');
+    this.fuelDebug.setText('Fuel: ' + Math.round(fuelSim.fuel) + '%');
 
     // Taking a measurement: climbing out of the top of the screen opens the
     // arc measurement minigame; winning it updates the navigation display's
@@ -556,6 +575,7 @@ class NavigationScreenScene extends Phaser.Scene {
     // Advance the shared simulations and show the ship's state.
     updateNavSim(delta / 1000);
     updatePowerSim(delta / 1000);
+    updateFuelSim(delta / 1000);
     syncNavShip(this.ship);
 
     // Show how long ago the displayed position was measured.
@@ -626,6 +646,7 @@ class ElectricityGeneratorScene extends Phaser.Scene {
       return;
     }
     updatePowerSim(delta / 1000);
+    updateFuelSim(delta / 1000);
     this.batteryText.setText(Math.round(powerSim.battery) + '%');
 
     // Controller: the D-pad left/right pedals (each press is a stroke, like
@@ -726,6 +747,7 @@ class SteeringWheelScene extends Phaser.Scene {
     // the battery keeps draining while steering.
     updateNavSim(dt);
     updatePowerSim(dt);
+    updateFuelSim(dt);
     syncNavShipLive(this.navShipDebug);
 
     // Turn the steering wheel with A/D, the left/right arrow keys, or the
@@ -915,6 +937,7 @@ class MeasurementScene extends Phaser.Scene {
     // The ship keeps flying and the battery keeps draining while measuring.
     updateNavSim(dt);
     updatePowerSim(dt);
+    updateFuelSim(dt);
 
     // Sweep the slider back and forth between -ARC_MAX_ANGLE and
     // +ARC_MAX_ANGLE, reversing at the ends of the arc.
@@ -1011,6 +1034,7 @@ class DistillerScene extends Phaser.Scene {
     // The ship keeps flying and the battery keeps draining while running.
     updateNavSim(dt);
     updatePowerSim(dt);
+    updateFuelSim(dt);
 
     // The controller's B button exits like Esc.
     const pad = this.input.gamepad ? this.input.gamepad.pad1 : null;
@@ -1083,8 +1107,9 @@ class DistillerScene extends Phaser.Scene {
       }
     }
 
-    // Reaching the fuel tank: the bottle is delivered.
+    // Reaching the fuel tank: the bottle is delivered, the tank is refilled.
     if (this.tank && this.tank.x <= RUN_PLAYER_X + 60) {
+      fuelSim.fuel = FUEL_MAX;
       this.scene.start('MainScene');
     }
   }
