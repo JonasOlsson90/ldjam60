@@ -72,6 +72,9 @@ const navSim = {
   measuredX: MONITOR_SCREEN.x + GOAL_MARGIN + 20,
   measuredY: MONITOR_SCREEN.y + MONITOR_SCREEN.height - GOAL_MARGIN - 20,
   measuredAngle: -Math.PI / 2,
+  // When the last measurement was taken (performance.now() timestamp in ms),
+  // or null if the position has never been measured.
+  measuredAt: null,
 };
 
 // --- Measurement minigame ----------------------------------------------------
@@ -475,6 +478,16 @@ class NavigationScreenScene extends Phaser.Scene {
     // (driven by the always-running navigation simulation).
     this.ship = createNavShip(this, 1, 10);
 
+    // The age of the displayed measurement, in the upper left corner of the
+    // monitor screen; updated live in update().
+    this.ageText = this.add
+      .text(MONITOR_SCREEN.x + 10, MONITOR_SCREEN.y + 10, '', {
+        fontFamily: 'monospace',
+        fontSize: '16px',
+        color: '#ffffff',
+      })
+      .setDepth(20);
+
     // Esc (or the controller's B button) returns to the main ship screen.
     this.padBWasDown = false;
     this.input.keyboard.on('keydown-ESC', () => {
@@ -492,6 +505,14 @@ class NavigationScreenScene extends Phaser.Scene {
     updateNavSim(delta / 1000);
     updatePowerSim(delta / 1000);
     syncNavShip(this.ship);
+
+    // Show how long ago the displayed position was measured.
+    if (navSim.measuredAt === null) {
+      this.ageText.setText('No data. Please provide navigational readings');
+    } else {
+      const age = Math.floor((performance.now() - navSim.measuredAt) / 1000);
+      this.ageText.setText('Position updated ' + age + 's ago');
+    }
 
     // The controller's B button exits like Esc.
     const pad = this.input.gamepad ? this.input.gamepad.pad1 : null;
@@ -806,6 +827,7 @@ class MeasurementScene extends Phaser.Scene {
         navSim.measuredX = navSim.shipX;
         navSim.measuredY = navSim.shipY;
         navSim.measuredAngle = navSim.angle;
+        navSim.measuredAt = performance.now();
         this.scene.start('MainScene');
         return;
       }
