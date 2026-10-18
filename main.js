@@ -867,6 +867,34 @@ const STAR_COUNT = 80;
 const WINDSHIELD = { x: 56, y: 40, width: 684, height: 320 };
 const WHEEL_X = GAME_WIDTH / 2;
 const WHEEL_Y = 370;
+// Objects seen through the windshield (the earth, the asteroids) represent
+// things on the navigation screen: their positions and sizes come from the
+// ship's real position and pointing direction in the navigation simulation.
+const WINDSHIELD_REF_DIST = 400; // nav px: the distance at which an object is shown at its reference size
+const EARTH_REF_SIZE = 24; // px on screen at WINDSHIELD_REF_DIST
+const EARTH_MAX_SIZE = 300; // px: the biggest the earth can appear
+const ASTEROID_REF_SIZE = 28; // px on screen at WINDSHIELD_REF_DIST
+const ASTEROID_MAX_SIZE = 260; // px: the biggest an asteroid can appear
+
+// Projects a navigation-space point onto the windshield: positions the image
+// at the point's bearing from the ship (same px/rad as the star drift, so it
+// pans in sync with the stars) and sizes it by the point's distance. Hides
+// the image when the point is outside the windshield's field of view.
+function projectToWindshield(image, targetX, targetY, refSize, maxSize) {
+  const dx = targetX - navSim.shipX;
+  const dy = targetY - navSim.shipY;
+  const rel = Phaser.Math.Angle.Wrap(Math.atan2(dy, dx) - navSim.angle);
+  if (Math.abs(rel) > WINDSHIELD_FOV / 2) {
+    image.setVisible(false);
+    return;
+  }
+  const pxPerRad = WINDSHIELD.width / WINDSHIELD_FOV;
+  image.setVisible(true);
+  image.x = WINDSHIELD.x + WINDSHIELD.width / 2 + rel * pxPerRad;
+  const dist = Math.max(1, Math.hypot(dx, dy));
+  const size = Math.min(maxSize, (refSize * WINDSHIELD_REF_DIST) / dist);
+  image.setDisplaySize(size, size);
+}
 // The compass dial on the dashboard, right of the steering wheel.
 const COMPASS_X = 680;
 const COMPASS_Y = 480;
@@ -880,6 +908,8 @@ class SteeringWheelScene extends Phaser.Scene {
     this.load.image('star', 'imgs/star.png');
     this.load.image('wheel_base', 'imgs/wheel_base.png');
     this.load.image('wheel', 'imgs/wheel.png');
+    this.load.image('earth', 'imgs/earth.png');
+    this.load.image('asteroid', 'imgs/asteroid.png');
   }
 
   create() {
@@ -904,6 +934,45 @@ class SteeringWheelScene extends Phaser.Scene {
           .setDepth(1)
       );
     }
+
+    // The earth floats in front of the stars at the goal's bearing and
+    // distance (updated every frame). It is masked to the windshield area,
+    // so it can not spill over the cockpit when it grows big.
+    this.earth = this.add
+      .image(
+        WINDSHIELD.x + WINDSHIELD.width / 2,
+        WINDSHIELD.y + WINDSHIELD.height / 2,
+        'earth'
+      )
+      .setDepth(1.5);
+    const windshieldMask = this.add
+      .rectangle(
+        WINDSHIELD.x + WINDSHIELD.width / 2,
+        WINDSHIELD.y + WINDSHIELD.height / 2,
+        WINDSHIELD.width,
+        WINDSHIELD.height
+      )
+      .setVisible(false)
+      .createGeometryMask();
+    this.earth.setMask(windshieldMask);
+
+    // The asteroids represent the obstacles of the navigation screen and are
+    // projected like the earth. Each spins at its own random speed in a
+    // random direction.
+    this.asteroids = OBSTACLES.map((o) => ({
+      x: o.x,
+      y: o.y,
+      spin:
+        Phaser.Math.FloatBetween(0.3, 1.5) * (Math.random() < 0.5 ? -1 : 1), // rad/s
+      image: this.add
+        .image(
+          WINDSHIELD.x + WINDSHIELD.width / 2,
+          WINDSHIELD.y + WINDSHIELD.height / 2,
+          'asteroid'
+        )
+        .setDepth(1.5)
+        .setMask(windshieldMask),
+    }));
 
     // The steering wheel mounted on the center pedestal.
     this.wheel = this.add.image(WHEEL_X, WHEEL_Y, 'wheel').setDepth(2);
@@ -988,6 +1057,16 @@ class SteeringWheelScene extends Phaser.Scene {
 
     // The wheel shows its own deflection (upright = centered = straight).
     this.wheel.setRotation(navSim.wheel);
+
+    // The earth sits at the goal's bearing from the ship: straight ahead
+    // when the ship points at the goal, off to a side (or hidden) otherwise,
+    // growing as the ship gets closer. The asteroids sit at the obstacles'
+    // bearings and spin slowly.
+    projectToWindshield(this.earth, GOAL_X, GOAL_Y, EARTH_REF_SIZE, EARTH_MAX_SIZE);
+    for (const a of this.asteroids) {
+      projectToWindshield(a.image, a.x, a.y, ASTEROID_REF_SIZE, ASTEROID_MAX_SIZE);
+      a.image.rotation += a.spin * dt;
+    }
 
     // The compass needle rotates against the ship's heading, always pointing
     // north on the map (navSim.angle 0 = east, so north is angle -π/2).
