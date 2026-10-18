@@ -82,6 +82,9 @@ switch (Math.floor(Math.random() * 4)) {
 const SHIP_SPEED = 2; // px/s
 const STEER_SPEED = 0.8; // rad/s the ship turns at full wheel deflection
 const MAX_WHEEL_ANGLE = Math.PI; // steering wheel clamp: half a turn each way
+// The navigation screen shows the ship's live data for this long after a
+// measurement, then goes blind until the next one.
+const NAV_DATA_TTL = 15; // s
 const navSim = {
   // Real-time position (game px, inside MONITOR_SCREEN) and pointing
   // direction in radians (0 = right, positive = clockwise). The ship
@@ -95,10 +98,10 @@ const navSim = {
   // while it is turned the ship keeps turning at a rate proportional to the
   // deflection.
   wheel: 0,
-  // The latest MEASURED state (position and direction): this is what the
-  // navigation screen displays — frozen until the next measurement. It is
-  // only updated when the player climbs out of the top of the screen and
-  // wins the measurement minigame.
+  // The latest MEASURED state (position and direction), captured when the
+  // player climbs out of the top of the screen and wins the measurement
+  // minigame. The navigation screen shows the ship's LIVE data for
+  // NAV_DATA_TTL seconds after a measurement, then goes blind.
   measuredX: MONITOR_SCREEN.x + MONITOR_SCREEN.width / 2,
   measuredY: MONITOR_SCREEN.y + MONITOR_SCREEN.height / 2,
   measuredAngle: -Math.PI / 2,
@@ -177,13 +180,6 @@ function createNavShip(scene, alpha, depth) {
     .triangle(navSim.shipX, navSim.shipY, 23, 9, 0, 0, 0, 18, 0xff0000, alpha)
     .setOrigin(0, 0.5)
     .setDepth(depth);
-}
-
-function syncNavShip(ship) {
-  // The navigation screen shows the latest MEASUREMENT (position and
-  // direction), frozen until the next measurement.
-  ship.setPosition(navSim.measuredX, navSim.measuredY);
-  ship.setRotation(navSim.measuredAngle);
 }
 
 function syncNavShipLive(ship) {
@@ -580,8 +576,8 @@ class NavigationScreenScene extends Phaser.Scene {
     // (driven by the always-running navigation simulation).
     this.ship = createNavShip(this, 1, 10);
 
-    // The age of the displayed measurement, in the upper left corner of the
-    // monitor screen; updated live in update().
+    // The remaining lifetime of the current data, in the upper left corner
+    // of the monitor screen; updated live in update().
     this.ageText = this.add
       .text(MONITOR_SCREEN.x + 10, MONITOR_SCREEN.y + 10, '', {
         fontFamily: 'monospace',
@@ -589,6 +585,18 @@ class NavigationScreenScene extends Phaser.Scene {
         color: '#ffffff',
       })
       .setDepth(20);
+
+    // Shown instead of the ship once the measured data has gone stale.
+    this.outdatedText = this.add
+      .text(
+        MONITOR_SCREEN.x + MONITOR_SCREEN.width / 2,
+        MONITOR_SCREEN.y + MONITOR_SCREEN.height / 2,
+        'Navigational data outdated, please provide new data.',
+        { fontFamily: 'monospace', fontSize: '20px', color: '#ffffff' }
+      )
+      .setOrigin(0.5)
+      .setDepth(20)
+      .setVisible(false);
 
     // Esc (or the controller's B button) returns to the main ship screen.
     this.padBWasDown = false;
@@ -607,14 +615,25 @@ class NavigationScreenScene extends Phaser.Scene {
     updateNavSim(delta / 1000);
     updatePowerSim(delta / 1000);
     updateFuelSim(delta / 1000);
-    syncNavShip(this.ship);
-
-    // Show how long ago the displayed position was measured.
-    if (navSim.measuredAt === null) {
-      this.ageText.setText('No data. Please provide navigational readings');
+    // Fresh data (NAV_DATA_TTL seconds after a measurement): show the ship's
+    // live position and direction. Older data is worthless: hide the ship and
+    // just ask for new data.
+    const dataAge =
+      navSim.measuredAt === null
+        ? Infinity
+        : (performance.now() - navSim.measuredAt) / 1000;
+    if (dataAge <= NAV_DATA_TTL) {
+      this.ship.setVisible(true);
+      syncNavShipLive(this.ship);
+      this.ageText.setVisible(true);
+      this.ageText.setText(
+        'Navigational data outdated in ' + Math.ceil(NAV_DATA_TTL - dataAge) + 's'
+      );
+      this.outdatedText.setVisible(false);
     } else {
-      const age = Math.floor((performance.now() - navSim.measuredAt) / 1000);
-      this.ageText.setText('Position updated ' + age + 's ago');
+      this.ship.setVisible(false);
+      this.ageText.setVisible(false);
+      this.outdatedText.setVisible(true);
     }
 
     // The controller's B button exits like Esc.
