@@ -225,7 +225,7 @@ function updatePowerSim(dt) {
 // it); finishing the distiller refuel minigame refills it to 100 %.
 const FUEL_MAX = 100;
 // Global speed factor for fuel depletion (1 = normal speed, lower = slower).
-const FUEL_SPEED = 0.5;
+const FUEL_SPEED = 1.5;
 const FUEL_DRAIN = 1; // % per second (before FUEL_SPEED)
 const fuelSim = { fuel: FUEL_MAX }; // 0..100 %
 
