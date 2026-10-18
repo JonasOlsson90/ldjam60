@@ -166,6 +166,19 @@ function syncNavShipLive(ship) {
   ship.setRotation(navSim.angle);
 }
 
+// Debug overlay: a transparent, always-on-top view of the navigation screen
+// (monitor screen area, goal box, ship). The simulation behind it always
+// runs, no matter which scene is active. Returns the ship marker (sync it
+// every frame with syncNavShipLive).
+function createNavOverlay(scene) {
+  const ov = MONITOR_SCREEN;
+  scene.add
+    .rectangle(ov.x + ov.width / 2, ov.y + ov.height / 2, ov.width, ov.height, 0xffffff, 0.06)
+    .setDepth(1000);
+  scene.add.rectangle(GOAL_X, GOAL_Y, GOAL_SIZE, GOAL_SIZE, 0x00ff00, 0.5).setDepth(1001);
+  return createNavShip(scene, 0.6, 1002);
+}
+
 // Debug end-of-game display: a big text slapped over the whole screen of
 // whatever scene is active. Scrapped once the real end screens exist.
 function showEndText(scene) {
@@ -300,12 +313,7 @@ class MainScene extends Phaser.Scene {
     // Debug overlay: a transparent, always-on-top view of the navigation
     // screen (monitor screen area, goal box, ship). The simulation behind it
     // always runs, no matter which scene is active.
-    const ov = MONITOR_SCREEN;
-    this.add
-      .rectangle(ov.x + ov.width / 2, ov.y + ov.height / 2, ov.width, ov.height, 0xffffff, 0.06)
-      .setDepth(1000);
-    this.add.rectangle(GOAL_X, GOAL_Y, GOAL_SIZE, GOAL_SIZE, 0x00ff00, 0.5).setDepth(1001);
-    this.navShipDebug = createNavShip(this, 0.6, 1002);
+    this.navShipDebug = createNavOverlay(this);
 
     // Debug: battery status, always visible in the top left of the screen.
     this.batteryDebug = this.add
@@ -674,6 +682,10 @@ class SteeringWheelScene extends Phaser.Scene {
     // The steering wheel mounted on the center pedestal.
     this.wheel = this.add.image(WHEEL_X, WHEEL_Y, 'wheel').setDepth(2);
 
+    // The same navigation debug overlay as on the main screen, so the ship's
+    // real-time position and turning are visible while steering.
+    this.navShipDebug = createNavOverlay(this);
+
     this.keys = {
       a: this.input.keyboard.addKey('A'),
       d: this.input.keyboard.addKey('D'),
@@ -699,6 +711,7 @@ class SteeringWheelScene extends Phaser.Scene {
     // the battery keeps draining while steering.
     updateNavSim(dt);
     updatePowerSim(dt);
+    syncNavShipLive(this.navShipDebug);
 
     // Turn the steering wheel with A/D, the left/right arrow keys, or the
     // controller's D-pad left/right.
