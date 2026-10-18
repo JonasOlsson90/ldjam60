@@ -818,8 +818,12 @@ class MeasurementScene extends Phaser.Scene {
     this.updateStreakText();
 
     // SPACE (or the controller's X button, edge-detected in update) tries a
-    // hit. Esc (or the controller's B button) aborts.
-    this.input.keyboard.on('keydown-SPACE', () => this.tryHit());
+    // hit. Esc (or the controller's B button) aborts. OS key auto-repeat is
+    // filtered out so a held SPACE (or a controller button mapped to it)
+    // can not machine-gun hits.
+    this.input.keyboard.on('keydown-SPACE', (event) => {
+      if (!event.repeat) this.tryHit();
+    });
     this.padXWasDown = false;
     this.padBWasDown = false;
     this.input.keyboard.on('keydown-ESC', () => {
