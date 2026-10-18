@@ -75,7 +75,7 @@ switch (Math.floor(Math.random() * 4)) {
 // background (whatever scene is active advances it); the scenes only
 // visualize it. Minigames decide what the screen shows and steer the ship.
 const SHIP_SPEED = 2; // px/s
-const STEER_SPEED = 1.6; // rad/s the ship turns at full wheel deflection
+const STEER_SPEED = 0.8; // rad/s the ship turns at full wheel deflection
 const MAX_WHEEL_ANGLE = Math.PI; // steering wheel clamp: half a turn each way
 const navSim = {
   // Real-time position (game px, inside MONITOR_SCREEN) and pointing
@@ -163,10 +163,14 @@ function updateNavSim(dt) {
   }
 }
 
-// The ship is a small red triangle whose tip points along navSim.angle.
+// The ship is a small red triangle whose tip points along navSim.angle. The
+// pivot is the middle of its base, so it turns around its tail like a real
+// ship (shape vertices are relative to the top-left of the bounding box, the
+// origin picks the pivot: 0, 0.5 = the middle of the left edge = the base).
 function createNavShip(scene, alpha, depth) {
   return scene.add
-    .triangle(navSim.shipX, navSim.shipY, 14, 0, -9, -9, -9, 9, 0xff0000, alpha)
+    .triangle(navSim.shipX, navSim.shipY, 23, 9, 0, 0, 0, 18, 0xff0000, alpha)
+    .setOrigin(0, 0.5)
     .setDepth(depth);
 }
 
@@ -700,6 +704,9 @@ const STAR_COUNT = 80;
 const WINDSHIELD = { x: 56, y: 40, width: 684, height: 320 };
 const WHEEL_X = GAME_WIDTH / 2;
 const WHEEL_Y = 370;
+// The compass dial on the dashboard, right of the steering wheel.
+const COMPASS_X = 680;
+const COMPASS_Y = 480;
 
 class SteeringWheelScene extends Phaser.Scene {
   constructor() {
@@ -741,6 +748,17 @@ class SteeringWheelScene extends Phaser.Scene {
     // The same navigation debug overlay as on the main screen, so the ship's
     // real-time position and turning are visible while steering.
     this.navShipDebug = createNavOverlay(this);
+
+    // Compass placeholder until the real compass graphic exists: a needle on
+    // a small dial. It rotates against the ship's heading so it always points
+    // north on the map.
+    this.add.circle(COMPASS_X, COMPASS_Y, 36, 0x000000, 0.5).setDepth(2);
+    // The needle pivots on the middle of its base (the pin in the center of
+    // the dial): origin 0.5, 1 = the middle of the bottom edge.
+    this.compass = this.add
+      .triangle(COMPASS_X, COMPASS_Y, 12, 0, 0, 34, 24, 34, 0xffcc00)
+      .setOrigin(0.5, 1)
+      .setDepth(3);
 
     this.keys = {
       a: this.input.keyboard.addKey('A'),
@@ -807,6 +825,10 @@ class SteeringWheelScene extends Phaser.Scene {
 
     // The wheel shows its own deflection (upright = centered = straight).
     this.wheel.setRotation(navSim.wheel);
+
+    // The compass needle rotates against the ship's heading, always pointing
+    // north on the map (navSim.angle 0 = east, so north is angle -π/2).
+    this.compass.setRotation(-(navSim.angle + Math.PI / 2));
   }
 }
 
