@@ -1059,7 +1059,7 @@ const RUN_TANK_DISTANCE = 3000; // px from the start to the fuel tank
 const RUN_OBSTACLES = [700, 1250, 1800, 2350];
 const RUN_GROUND = 500; // y of the player's feet
 const RUN_PLAYER_X = 150;
-const RUN_OBSTACLE_SIZE = 48;
+const RUN_OBSTACLE_SIZE = 70; // px, the native size of bad.png
 const BOTTLE_FULL = 100; // %
 const BOTTLE_DRAIN = 6; // % per second the player drinks
 
@@ -1069,15 +1069,14 @@ class DistillerScene extends Phaser.Scene {
   }
 
   preload() {
-    // Placeholder art until the real graphics are created: the obstacles are
-    // the measurement target, the fuel tank is the measurement slider (both
-    // normally loaded by the measurement scene, but the distiller can be
-    // played before that scene ever ran). The runner uses the regular player
-    // sprite, which the main scene always loads first.
-    if (!this.textures.exists('arc_target'))
-      this.load.image('arc_target', 'imgs/arc_target.png');
-    if (!this.textures.exists('arc_slider'))
-      this.load.image('arc_slider', 'imgs/arc_slider.png');
+    this.load.image('bad', 'imgs/bad.png');
+    this.load.image('fueltank', 'imgs/fueltank.png');
+    // The runner: 2-frame spritesheet, 100x125 per frame.
+    if (!this.textures.exists('runner'))
+      this.load.spritesheet('runner', 'imgs/Sprite-0002.png', {
+        frameWidth: 100,
+        frameHeight: 125,
+      });
   }
 
   create() {
@@ -1086,9 +1085,37 @@ class DistillerScene extends Phaser.Scene {
     // The ground the player runs on.
     this.add.rectangle(GAME_WIDTH / 2, RUN_GROUND, GAME_WIDTH, 4, 0xffffff, 0.3);
 
-    // The player starts at a standstill on the left of the screen.
-    this.runner = this.add.sprite(RUN_PLAYER_X, RUN_GROUND - 66, 'player');
-    this.runner.play('idle');
+    // What to do.
+    this.add
+      .text(
+        GAME_WIDTH / 2,
+        40,
+        'Hurry to the fuel tank before the fuel is gone!\n' +
+          'Press SPACE to jump and LEFT to run!',
+        {
+          fontFamily: 'monospace',
+          fontSize: '20px',
+          color: '#ffffff',
+          align: 'center',
+        }
+      )
+      .setOrigin(0.5)
+      .setDepth(10);
+
+    // The player starts at a standstill on the left of the screen. The run
+    // animation's base frame rate is for full speed; it is scaled down with
+    // the actual speed while running.
+    this.runner = this.add.sprite(RUN_PLAYER_X, 0, 'runner');
+    this.runner.y = RUN_GROUND - this.runner.displayHeight / 2;
+    this.runner.setFrame(0);
+    if (!this.anims.exists('run')) {
+      this.anims.create({
+        key: 'run',
+        frames: this.anims.generateFrameNumbers('runner', { frames: [0, 1] }),
+        frameRate: 8,
+        repeat: -1,
+      });
+    }
     this.speed = 0; // px/s, built up by holding right
     this.jumpVy = 0; // < 0 while jumping
 
@@ -1096,19 +1123,27 @@ class DistillerScene extends Phaser.Scene {
     this.bottle = BOTTLE_FULL; // %
     this.finished = false; // bottle drunk dry before reaching the tank
     this.bottleText = this.add
-      .text(10, 10, '', { fontFamily: 'monospace', fontSize: '16px', color: '#ffffff' })
+      .text(GAME_WIDTH / 2, 90, '', {
+        fontFamily: 'monospace',
+        fontSize: '16px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5)
       .setDepth(10);
 
     // The obstacles and the fuel tank stand at fixed positions along the run
     // and scroll towards the player with the player's speed.
     this.obstacles = RUN_OBSTACLES.map((x) =>
-      this.add
-        .image(x, RUN_GROUND - RUN_OBSTACLE_SIZE / 2, 'arc_target')
-        .setDisplaySize(RUN_OBSTACLE_SIZE, RUN_OBSTACLE_SIZE)
+      this.add.image(x, RUN_GROUND - RUN_OBSTACLE_SIZE / 2, 'bad')
     );
+    // The fuel tank the player has to reach, standing on the ground at the
+    // end of the run. It is drawn behind the runner, so the player stands in
+    // front of it when they overlap at the finish.
     this.tank = this.add
-      .image(RUN_TANK_DISTANCE, RUN_GROUND - 60, 'arc_slider')
-      .setDisplaySize(90, 120);
+      .image(RUN_TANK_DISTANCE, 0, 'fueltank')
+      .setDisplaySize(208, 132)
+      .setDepth(-1);
+    this.tank.y = RUN_GROUND - this.tank.displayHeight / 2;
 
     // Accelerate: D / right arrow / D-pad right. Jump: SPACE / UP / W, or the
     // controller's X button / D-pad up (all edge-detected in update).
@@ -1155,9 +1190,15 @@ class DistillerScene extends Phaser.Scene {
       this.speed = Math.min(RUN_MAX_SPEED, this.speed + RUN_ACCEL * dt);
     }
 
-    // The runner runs in place while moving, stands while slow.
-    const anim = this.speed > 5 ? 'walk' : 'idle';
-    if (this.runner.anims.currentAnim.key !== anim) this.runner.play(anim);
+    // The runner runs in place while moving, stands while slow; the faster
+    // it runs, the faster the animation plays.
+    if (this.speed > 5) {
+      if (!this.runner.anims.isPlaying) this.runner.play('run');
+      this.runner.anims.timeScale = Math.max(0.2, this.speed / RUN_MAX_SPEED);
+    } else if (this.runner.anims.isPlaying) {
+      this.runner.anims.stop();
+      this.runner.setFrame(0);
+    }
 
     // Jump (edge-detected), only from the ground.
     const jumpDown =
@@ -1195,12 +1236,15 @@ class DistillerScene extends Phaser.Scene {
       return;
     }
 
-    // Hitting an obstacle knocks it away and stops the player cold.
+    // Hitting an obstacle knocks it away and stops the player cold. The
+    // runner's hitbox is only the left half of the sprite, so it is centered
+    // a quarter of the sprite's width to the left of its center.
+    const hitX = RUN_PLAYER_X - this.runner.displayWidth / 4;
+    const hitW = this.runner.displayWidth / 2;
     for (let i = this.obstacles.length - 1; i >= 0; i--) {
       const ob = this.obstacles[i];
       if (
-        Math.abs(ob.x - RUN_PLAYER_X) <
-          (RUN_OBSTACLE_SIZE + this.runner.displayWidth) / 2 - 8 &&
+        Math.abs(ob.x - hitX) < (RUN_OBSTACLE_SIZE + hitW) / 2 - 8 &&
         feetY() > RUN_GROUND - RUN_OBSTACLE_SIZE + 8
       ) {
         this.obstacles.splice(i, 1);
