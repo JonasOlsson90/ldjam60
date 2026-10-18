@@ -355,6 +355,13 @@ class MainScene extends Phaser.Scene {
     });
 
     this.cursors = this.input.keyboard.createCursorKeys();
+    // WASD mirrors the arrow keys (same as in the minigames).
+    this.wasd = {
+      w: this.input.keyboard.addKey('W'),
+      a: this.input.keyboard.addKey('A'),
+      s: this.input.keyboard.addKey('S'),
+      d: this.input.keyboard.addKey('D'),
+    };
   }
 
   update(time, delta) {
@@ -366,12 +373,13 @@ class MainScene extends Phaser.Scene {
     const dt = delta / 1000;
     const p = this.player;
 
-    // Input: keyboard (arrows) or an Xbox controller (D-pad moves, X jumps).
+    // Input: keyboard (arrows or WASD) or an Xbox controller (D-pad moves,
+    // X jumps).
     const pad = this.input.gamepad ? this.input.gamepad.pad1 : null;
-    const moveLeft = this.cursors.left.isDown || !!(pad && pad.left);
-    const moveRight = this.cursors.right.isDown || !!(pad && pad.right);
-    const moveUp = this.cursors.up.isDown || !!(pad && pad.up);
-    const moveDown = this.cursors.down.isDown || !!(pad && pad.down);
+    const moveLeft = this.cursors.left.isDown || this.wasd.a.isDown || !!(pad && pad.left);
+    const moveRight = this.cursors.right.isDown || this.wasd.d.isDown || !!(pad && pad.right);
+    const moveUp = this.cursors.up.isDown || this.wasd.w.isDown || !!(pad && pad.up);
+    const moveDown = this.cursors.down.isDown || this.wasd.s.isDown || !!(pad && pad.down);
     if (pad && pad.X && !this.padXWasDown) this.jumpRequested = true;
     this.padXWasDown = !!(pad && pad.X);
 
@@ -962,19 +970,27 @@ class MeasurementScene extends Phaser.Scene {
 }
 
 // --- Distiller minigame scene -------------------------------------------------
-// Dino run: the player hurries a bottle to the fuel tank before the distiller
-// drinks it all. The player runs in place on the left of the screen while the
-// world scrolls by; jump over the obstacles and reach the fuel tank — the
-// whole run takes about 10 seconds. Tripping over an obstacle spills the
-// bottle: back to the ship to try again. Esc (or the controller's B button)
-// aborts.
-const RUN_SPEED = 240; // px/s the world scrolls past the player
-const RUN_END = 10; // s: the fuel tank reaches the player at this time
+// Refuel run: the player carries a full bottle to the fuel tank but drinks
+// from it continually on the way — the faster the run, the more fuel is left
+// to pour into the ship's tank. Hold D / right arrow (or the controller's
+// D-pad right) to accelerate from a standstill; the speed is kept until an
+// obstacle is hit, which stops the player cold. Jump (SPACE / UP / X / D-pad
+// up) over the obstacles. Reaching the tank adds the bottle's remaining
+// contents to the ship's fuel; a bottle drunk dry before the tank means the
+// run failed. Esc (or the controller's B button) aborts.
+const RUN_MAX_SPEED = 350; // px/s at full tilt
+// px/s^2 while holding right: deliberately slow, so hitting an obstacle (and
+// losing all speed) costs precious seconds of bottle — jumping is always
+// better than tanking a hit.
+const RUN_ACCEL = 100;
+const RUN_TANK_DISTANCE = 3000; // px from the start to the fuel tank
+// Positions (px) of the obstacles along the run.
+const RUN_OBSTACLES = [700, 1250, 1800, 2350];
 const RUN_GROUND = 500; // y of the player's feet
 const RUN_PLAYER_X = 150;
 const RUN_OBSTACLE_SIZE = 48;
-// Times (s) when the obstacles enter from the right edge of the screen.
-const RUN_OBSTACLE_SPAWNS = [0.5, 2, 3.5, 4.8];
+const BOTTLE_FULL = 100; // %
+const BOTTLE_DRAIN = 6; // % per second the player drinks
 
 class DistillerScene extends Phaser.Scene {
   constructor() {
@@ -999,23 +1015,39 @@ class DistillerScene extends Phaser.Scene {
     // The ground the player runs on.
     this.add.rectangle(GAME_WIDTH / 2, RUN_GROUND, GAME_WIDTH, 4, 0xffffff, 0.3);
 
-    // The player runs in place on the left of the screen.
+    // The player starts at a standstill on the left of the screen.
     this.runner = this.add.sprite(RUN_PLAYER_X, RUN_GROUND - 66, 'player');
-    this.runner.play('walk');
+    this.runner.play('idle');
+    this.speed = 0; // px/s, built up by holding right
     this.jumpVy = 0; // < 0 while jumping
 
-    this.obstacles = [];
-    this.spawnIndex = 0;
-    this.runTime = 0;
-    this.tank = null;
-    this.failed = false;
+    // The bottle starts full; the player drinks from it continually.
+    this.bottle = BOTTLE_FULL; // %
+    this.finished = false; // bottle drunk dry before reaching the tank
+    this.bottleText = this.add
+      .text(10, 10, '', { fontFamily: 'monospace', fontSize: '16px', color: '#ffffff' })
+      .setDepth(10);
 
-    // Jump: SPACE / UP / W, or the controller's X button / D-pad up (all
-    // edge-detected in update). Esc (or B) aborts.
+    // The obstacles and the fuel tank stand at fixed positions along the run
+    // and scroll towards the player with the player's speed.
+    this.obstacles = RUN_OBSTACLES.map((x) =>
+      this.add
+        .image(x, RUN_GROUND - RUN_OBSTACLE_SIZE / 2, 'arc_target')
+        .setDisplaySize(RUN_OBSTACLE_SIZE, RUN_OBSTACLE_SIZE)
+    );
+    this.tank = this.add
+      .image(RUN_TANK_DISTANCE, RUN_GROUND - 60, 'arc_slider')
+      .setDisplaySize(90, 120);
+
+    // Accelerate: D / right arrow / D-pad right. Jump: SPACE / UP / W, or the
+    // controller's X button / D-pad up (all edge-detected in update).
+    // Esc (or B) aborts.
     this.keys = {
       space: this.input.keyboard.addKey('SPACE'),
       up: this.input.keyboard.addKey('UP'),
       w: this.input.keyboard.addKey('W'),
+      d: this.input.keyboard.addKey('D'),
+      right: this.input.keyboard.addKey('RIGHT'),
     };
     this.jumpWasDown = false;
     this.padBWasDown = false;
@@ -1040,10 +1072,21 @@ class DistillerScene extends Phaser.Scene {
     const pad = this.input.gamepad ? this.input.gamepad.pad1 : null;
     if (pad && pad.B && !this.padBWasDown) this.scene.start('MainScene');
     this.padBWasDown = !!(pad && pad.B);
-    if (this.failed) return;
+    if (this.finished) return;
 
-    this.runTime += dt;
     const feetY = () => this.runner.y + this.runner.displayHeight / 2;
+
+    // Accelerate while right is held; the speed is kept until an obstacle
+    // stops the player cold.
+    const accelDown =
+      this.keys.d.isDown || this.keys.right.isDown || !!(pad && pad.right);
+    if (accelDown) {
+      this.speed = Math.min(RUN_MAX_SPEED, this.speed + RUN_ACCEL * dt);
+    }
+
+    // The runner runs in place while moving, stands while slow.
+    const anim = this.speed > 5 ? 'walk' : 'idle';
+    if (this.runner.anims.currentAnim.key !== anim) this.runner.play(anim);
 
     // Jump (edge-detected), only from the ground.
     const jumpDown =
@@ -1066,50 +1109,41 @@ class DistillerScene extends Phaser.Scene {
       }
     }
 
-    // Spawn the obstacles on schedule; they slide in from the right.
-    while (
-      this.spawnIndex < RUN_OBSTACLE_SPAWNS.length &&
-      this.runTime >= RUN_OBSTACLE_SPAWNS[this.spawnIndex]
-    ) {
-      const ob = this.add.image(
-        GAME_WIDTH + 50,
-        RUN_GROUND - RUN_OBSTACLE_SIZE / 2,
-        'arc_target'
-      );
-      ob.setDisplaySize(RUN_OBSTACLE_SIZE, RUN_OBSTACLE_SIZE);
-      this.obstacles.push(ob);
-      this.spawnIndex++;
+    // The world scrolls towards the player with the player's speed.
+    for (const ob of this.obstacles) ob.x -= this.speed * dt;
+    this.tank.x -= this.speed * dt;
+
+    // The player drinks from the bottle continually; a bottle drunk dry
+    // before the tank means the run failed.
+    this.bottle = Math.max(0, this.bottle - BOTTLE_DRAIN * dt);
+    this.bottleText.setText('Bottle: ' + Math.round(this.bottle) + '%');
+    if (this.bottle <= 0) {
+      this.finished = true;
+      this.runner.setTint(0xff0000);
+      this.time.delayedCall(900, () => this.scene.start('MainScene'));
+      return;
     }
 
-    // The fuel tank slides in so that it reaches the player at RUN_END.
-    if (
-      !this.tank &&
-      this.runTime >= RUN_END - (GAME_WIDTH + 50 - RUN_PLAYER_X - 60) / RUN_SPEED
-    ) {
-      this.tank = this.add.image(GAME_WIDTH + 50, RUN_GROUND - 60, 'arc_slider');
-      this.tank.setDisplaySize(90, 120);
-    }
-
-    // Scroll the world past the player.
-    for (const ob of this.obstacles) ob.x -= RUN_SPEED * dt;
-    if (this.tank) this.tank.x -= RUN_SPEED * dt;
-
-    // Tripping over an obstacle spills the bottle.
-    for (const ob of this.obstacles) {
+    // Hitting an obstacle knocks it away and stops the player cold.
+    for (let i = this.obstacles.length - 1; i >= 0; i--) {
+      const ob = this.obstacles[i];
       if (
         Math.abs(ob.x - RUN_PLAYER_X) <
           (RUN_OBSTACLE_SIZE + this.runner.displayWidth) / 2 - 8 &&
         feetY() > RUN_GROUND - RUN_OBSTACLE_SIZE + 8
       ) {
-        this.failed = true;
+        this.obstacles.splice(i, 1);
+        ob.destroy();
+        this.speed = 0;
         this.runner.setTint(0xff0000);
-        this.time.delayedCall(800, () => this.scene.start('MainScene'));
+        this.time.delayedCall(250, () => this.runner.clearTint());
       }
     }
 
-    // Reaching the fuel tank: the bottle is delivered, the tank is refilled.
-    if (this.tank && this.tank.x <= RUN_PLAYER_X + 60) {
-      fuelSim.fuel = FUEL_MAX;
+    // Reaching the fuel tank: the bottle's remaining contents are poured into
+    // the ship's fuel — the more is left, the bigger the refill.
+    if (this.tank.x <= RUN_PLAYER_X + 60) {
+      fuelSim.fuel = Math.min(FUEL_MAX, fuelSim.fuel + this.bottle);
       this.scene.start('MainScene');
     }
   }
