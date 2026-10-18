@@ -113,6 +113,15 @@ const ARC_SLIDER_SPEED = 120; // degrees/s the slider sweeps at
 // degrees) for a press to still count as a hit (10% of the 90° swing = 9°).
 const ARC_TOLERANCE = 9;
 const ARC_WINS_NEEDED = 3; // hits in a row needed to take the measurement
+// The sextant gently bobs and tilts along with the sweeping slider.
+const SEXTANT_BOB = 0.2; // px of vertical bob per degree of slider angle
+const SEXTANT_TILT = 0.08; // degrees of tilt per degree of slider angle
+// The star field drifting from right to left behind the dial: bigger stars
+// are closer, so they drift faster, giving a sense of speed.
+const NAV_STAR_COUNT = 60;
+const NAV_STAR_MIN_SCALE = 0.5;
+const NAV_STAR_MAX_SCALE = 2;
+const NAV_STAR_SPEED = 60; // px/s of drift per unit of star scale
 // How far below the leaving point the player reappears on the ladder after
 // the minigame, so the whole sprite is visible on screen (the sprite is 132
 // px tall, so 140 leaves a small margin above its head).
@@ -818,10 +827,29 @@ class MeasurementScene extends Phaser.Scene {
     this.load.image('arc', 'imgs/arc.png');
     this.load.image('arc_target', 'imgs/arc_target.png');
     this.load.image('arc_slider', 'imgs/arc_slider.png');
+    this.load.image('sextant', 'imgs/sextant.png');
+    this.load.image('nav_overlay', 'imgs/nav_overlay.png');
+    this.load.image('star', 'imgs/star.png');
   }
 
   create() {
     this.cameras.main.setBackgroundColor('#101018');
+
+    // The star field behind everything: stars of differing sizes drift from
+    // right to left at speeds proportional to their size (bigger = closer =
+    // faster), wrapping around at the left edge.
+    this.stars = [];
+    for (let i = 0; i < NAV_STAR_COUNT; i++) {
+      const scale = Phaser.Math.FloatBetween(
+        NAV_STAR_MIN_SCALE,
+        NAV_STAR_MAX_SCALE
+      );
+      const star = this.add
+        .image(Math.random() * GAME_WIDTH, Math.random() * GAME_HEIGHT, 'star')
+        .setScale(scale);
+      star.drift = scale * NAV_STAR_SPEED; // px/s
+      this.stars.push(star);
+    }
 
     // The dial in the middle of the screen. All three images are 600x600
     // with their markings at the 3-o'clock position, so they rotate around
@@ -829,8 +857,14 @@ class MeasurementScene extends Phaser.Scene {
     const cx = GAME_WIDTH / 2;
     const cy = GAME_HEIGHT / 2;
     this.add.image(cx, cy, 'arc');
+    // The cosmonaut with the sextant in front of the dial. Its origin is the
+    // center of its bottom edge so the gentle bob and tilt (driven by the
+    // slider in update()) pivot there.
+    this.sextant = this.add.image(cx, GAME_HEIGHT, 'sextant').setOrigin(0.5, 1);
     this.target = this.add.image(cx, cy, 'arc_target');
     this.slider = this.add.image(cx, cy, 'arc_slider');
+    // The static overlay framing the scene, on top of everything else.
+    this.add.image(cx, cy, 'nav_overlay');
 
     // The streak of successful hits; ARC_WINS_NEEDED in a row take the
     // measurement. The target's angle is re-rolled after every press.
@@ -961,6 +995,18 @@ class MeasurementScene extends Phaser.Scene {
       this.sliderDir = -1;
     }
     this.slider.setAngle(this.sliderAngle);
+
+    // The sextant follows the slider: as the slider sweeps up
+    // (counterclockwise) the sextant bobs up and tilts counterclockwise; as
+    // it sweeps down the sextant sinks and tilts clockwise.
+    this.sextant.setY(GAME_HEIGHT + this.sliderAngle * SEXTANT_BOB);
+    this.sextant.setAngle(this.sliderAngle * SEXTANT_TILT);
+
+    // Drift the star field from right to left, wrapping at the edges.
+    for (const s of this.stars) {
+      s.x -= s.drift * dt;
+      if (s.x < -8) s.x += GAME_WIDTH + 16;
+    }
 
     // Controller: the X button presses like SPACE, the B button exits like
     // Esc.
