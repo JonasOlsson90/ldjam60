@@ -636,7 +636,9 @@ class ElectricityGeneratorScene extends Phaser.Scene {
 // keep turning until the wheel is steered back to center.
 // Esc (or the controller's B button) returns to 'MainScene'.
 const WHEEL_TURN_SPEED = 2.0; // rad/s the A/D keys turn the wheel
-const STAR_DRIFT = 160; // px/s at full deflection, opposite to the turn
+// The windshield's horizontal field of view: it links the star drift to the
+// ship's turn rate, so the stars scroll exactly as fast as the ship turns.
+const WINDSHIELD_FOV = Math.PI / 2; // radians (90 degrees)
 const STAR_COUNT = 80;
 // wheel_base.png is a full-screen cockpit image: the star field shows in its
 // windshield (the black area, measured from the image) and the wheel sits on
@@ -733,13 +735,15 @@ class SteeringWheelScene extends Phaser.Scene {
     if (pad && pad.B && !this.padBWasDown) this.scene.start('MainScene');
     this.padBWasDown = !!(pad && pad.B);
 
-    // The star field drifts with the current turn rate (opposite to the
-    // turn), wrapping around the windshield — it keeps moving while the
-    // wheel stays turned.
-    const turn = navSim.wheel / MAX_WHEEL_ANGLE; // -1..1
-    if (turn !== 0) {
+    // The star field scrolls in sync with the ship's turn rate (opposite to
+    // the turn), wrapping around the windshield — it keeps moving while the
+    // wheel stays turned. A turn of ω rad/s sweeps the view across
+    // ω * (windshield width / field of view) px/s of star field.
+    const turnRate = (navSim.wheel / MAX_WHEEL_ANGLE) * STEER_SPEED; // rad/s
+    if (turnRate !== 0) {
+      const drift = (turnRate * WINDSHIELD.width) / WINDSHIELD_FOV; // px/s
       for (const s of this.stars) {
-        s.x -= turn * STAR_DRIFT * dt;
+        s.x -= drift * dt;
         if (s.x < WINDSHIELD.x - 4) s.x += WINDSHIELD.width + 8;
         else if (s.x > WINDSHIELD.x + WINDSHIELD.width + 4)
           s.x -= WINDSHIELD.width + 8;
