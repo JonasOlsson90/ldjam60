@@ -49,7 +49,7 @@ const GOAL_Y = MONITOR_SCREEN.y + GOAL_MARGIN + GOAL_SIZE / 2;
 // The ship shown on the navigation screen. This simulation ALWAYS runs in the
 // background (whatever scene is active advances it); the scenes only
 // visualize it. Minigames decide what the screen shows and steer the ship.
-const SHIP_SPEED = 9; // px/s
+const SHIP_SPEED = 2; // px/s
 const STEER_SPEED = 1.6; // rad/s the ship turns at full wheel deflection
 const MAX_WHEEL_ANGLE = Math.PI; // steering wheel clamp: half a turn each way
 const navSim = {
