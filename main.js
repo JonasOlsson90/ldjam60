@@ -598,6 +598,18 @@ class NavigationScreenScene extends Phaser.Scene {
       .setDepth(20)
       .setVisible(false);
 
+    // Shown when the battery is empty: the computer is dead.
+    this.noPowerText = this.add
+      .text(
+        MONITOR_SCREEN.x + MONITOR_SCREEN.width / 2,
+        MONITOR_SCREEN.y + MONITOR_SCREEN.height / 2,
+        'No power.',
+        { fontFamily: 'monospace', fontSize: '20px', color: '#ffffff' }
+      )
+      .setOrigin(0.5)
+      .setDepth(20)
+      .setVisible(false);
+
     // Esc (or the controller's B button) returns to the main ship screen.
     this.padBWasDown = false;
     this.input.keyboard.on('keydown-ESC', () => {
@@ -615,6 +627,10 @@ class NavigationScreenScene extends Phaser.Scene {
     updateNavSim(delta / 1000);
     updatePowerSim(delta / 1000);
     updateFuelSim(delta / 1000);
+    // No battery, no computer: the screen is dead.
+    const noPower = powerSim.battery <= 0;
+    this.noPowerText.setVisible(noPower);
+
     // Fresh data (NAV_DATA_TTL seconds after a measurement): show the ship's
     // live position and direction. Older data is worthless: hide the ship and
     // just ask for new data.
@@ -622,19 +638,16 @@ class NavigationScreenScene extends Phaser.Scene {
       navSim.measuredAt === null
         ? Infinity
         : (performance.now() - navSim.measuredAt) / 1000;
-    if (dataAge <= NAV_DATA_TTL) {
-      this.ship.setVisible(true);
-      syncNavShipLive(this.ship);
-      this.ageText.setVisible(true);
+    const showData = !noPower && dataAge <= NAV_DATA_TTL;
+    this.ship.setVisible(showData);
+    if (showData) syncNavShipLive(this.ship);
+    this.ageText.setVisible(showData);
+    if (showData) {
       this.ageText.setText(
         'Navigational data outdated in ' + Math.ceil(NAV_DATA_TTL - dataAge) + 's'
       );
-      this.outdatedText.setVisible(false);
-    } else {
-      this.ship.setVisible(false);
-      this.ageText.setVisible(false);
-      this.outdatedText.setVisible(true);
     }
+    this.outdatedText.setVisible(!noPower && !showData);
 
     // The controller's B button exits like Esc.
     const pad = this.input.gamepad ? this.input.gamepad.pad1 : null;
