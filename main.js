@@ -2,6 +2,11 @@
 const GAME_WIDTH = 800;
 const GAME_HEIGHT = 600;
 
+// Debug mode: shows the navigation debug overlay (the transparent monitor
+// screen area with the goal and the ship's live position) in the main scene
+// and the steering minigame. false = release: no overlay.
+const DEBUG = true;
+
 // Navigation screen trigger: the area in front of the computer on the desk in
 // the ship's top-left cabin (game coordinates, measured from ship_interior.png,
 // which is upscaled 2x). The navigation screen opens when the player's center
@@ -183,6 +188,7 @@ function syncNavShip(ship) {
 
 function syncNavShipLive(ship) {
   // The debug overlay shows the ship's real-time position and direction.
+  if (!ship) return; // no overlay in release mode
   ship.setPosition(navSim.shipX, navSim.shipY);
   ship.setRotation(navSim.angle);
 }
@@ -190,8 +196,9 @@ function syncNavShipLive(ship) {
 // Debug overlay: a transparent, always-on-top view of the navigation screen
 // (monitor screen area, goal box, ship). The simulation behind it always
 // runs, no matter which scene is active. Returns the ship marker (sync it
-// every frame with syncNavShipLive).
+// every frame with syncNavShipLive), or null when not in debug mode.
 function createNavOverlay(scene) {
+  if (!DEBUG) return null;
   const ov = MONITOR_SCREEN;
   scene.add
     .rectangle(ov.x + ov.width / 2, ov.y + ov.height / 2, ov.width, ov.height, 0xffffff, 0.06)
