@@ -67,12 +67,28 @@ const navSim = {
   wheel: 0,
   // The latest MEASURED state (position and direction): this is what the
   // navigation screen displays — frozen until the next measurement. It is
-  // only updated when the player climbs out of the top of the screen to take
-  // a measurement.
+  // only updated when the player climbs out of the top of the screen and
+  // wins the measurement minigame.
   measuredX: MONITOR_SCREEN.x + GOAL_MARGIN + 20,
   measuredY: MONITOR_SCREEN.y + MONITOR_SCREEN.height - GOAL_MARGIN - 20,
   measuredAngle: -Math.PI / 2,
 };
+
+// --- Measurement minigame ----------------------------------------------------
+// The arc minigame opened by climbing out of the top of the screen: press
+// SPACE (or the controller's X button) when the sweeping slider overlaps the
+// target. ARC_WINS_NEEDED hits in a row take the measurement (copy the ship's
+// real state into the measured state); a miss resets the streak.
+const ARC_MAX_ANGLE = 45; // degrees: target and slider stay within ±45°
+const ARC_SLIDER_SPEED = 120; // degrees/s the slider sweeps at
+// Offset allowance: how far the slider's angle may be off the target's (in
+// degrees) for a press to still count as a hit (10% of the 90° swing = 9°).
+const ARC_TOLERANCE = 9;
+const ARC_WINS_NEEDED = 3; // hits in a row needed to take the measurement
+// How far below the leaving point the player reappears on the ladder after
+// the minigame, so the whole sprite is visible on screen (the sprite is 132
+// px tall, so 140 leaves a small margin above its head).
+const MEASURE_RETURN_DROP = 140;
 
 // Set when the ship travels outside the map boundaries: the game freezes
 // (a proper game over image comes later).
@@ -180,17 +196,33 @@ class MainScene extends Phaser.Scene {
     // Player: the character sprite, standing at the bottom-center of the
     // screen (feet on the edge) with the 2-frame idle animation looping.
     this.player = this.add.sprite(GAME_WIDTH / 2, GAME_HEIGHT, 'player').setDepth(10);
+    // True when returning from the measurement minigame: the player starts
+    // on the ladder in the climbing pose (applied after the animation
+    // setup below).
+    let startOnLadder = false;
     if (playerReturnPos) {
-      // Returning from a minigame: restore the position, but nudge out of
-      // the minigame's trigger zone (in its exit direction) so it doesn't
-      // immediately reopen.
-      const z = playerReturnPos.zone;
-      const margin = this.player.displayWidth / 2 + 4;
-      this.player.x =
-        z.exit === -1
-          ? Math.min(playerReturnPos.x, z.x - margin)
-          : Math.max(playerReturnPos.x, z.x + z.width + margin);
-      this.player.y = playerReturnPos.y;
+      if (playerReturnPos.ladder) {
+        // Returning from the measurement minigame: back on the ladder,
+        // slightly lower than when the player climbed out, so the sprite is
+        // visible on screen.
+        this.player.x = playerReturnPos.x;
+        this.player.y = Math.min(
+          playerReturnPos.y + MEASURE_RETURN_DROP,
+          FLOOR_BOTTOM - this.player.displayHeight / 2
+        );
+        startOnLadder = true;
+      } else {
+        // Returning from a minigame: restore the position, but nudge out of
+        // the minigame's trigger zone (in its exit direction) so it doesn't
+        // immediately reopen.
+        const z = playerReturnPos.zone;
+        const margin = this.player.displayWidth / 2 + 4;
+        this.player.x =
+          z.exit === -1
+            ? Math.min(playerReturnPos.x, z.x - margin)
+            : Math.max(playerReturnPos.x, z.x + z.width + margin);
+        this.player.y = playerReturnPos.y;
+      }
     } else {
       this.player.y = FLOOR_BOTTOM - this.player.displayHeight / 2;
     }
@@ -223,6 +255,13 @@ class MainScene extends Phaser.Scene {
     // Current sprite state ('idle' | 'walk' | 'climb'), to only switch the
     // animation when the state actually changes.
     this.playerState = 'idle';
+    if (startOnLadder) {
+      // Returning from the measurement minigame: hang on the ladder in the
+      // climbing frame.
+      this.player.anims.stop();
+      this.player.setFrame(3);
+      this.playerState = 'climb';
+    }
 
     // Debug overlay: a transparent, always-on-top view of the navigation
     // screen (monitor screen area, goal box, ship). The simulation behind it
@@ -335,13 +374,13 @@ class MainScene extends Phaser.Scene {
     updatePowerSim(dt);
     this.batteryDebug.setText('Battery: ' + Math.round(powerSim.battery) + '%');
 
-    // Taking a measurement: while the player is outside the top of the
-    // screen (climbed up the ladder), the navigation display's measured
-    // state is updated to the ship's current real position and direction.
-    if (feet() <= 0) {
-      navSim.measuredX = navSim.shipX;
-      navSim.measuredY = navSim.shipY;
-      navSim.measuredAngle = navSim.angle;
+    // Taking a measurement: climbing out of the top of the screen opens the
+    // arc measurement minigame; winning it updates the navigation display's
+    // measured state to the ship's current real position and direction.
+    if (!this._leaving && feet() <= 0) {
+      this._leaving = true;
+      playerReturnPos = { x: p.x, y: p.y, ladder: true };
+      this.scene.start('measurement');
     }
 
     // Sprite state: climbing (on the ladder, moving or hanging mid-air),
@@ -647,6 +686,171 @@ class SteeringWheelScene extends Phaser.Scene {
   }
 }
 
+// --- Measurement minigame scene ----------------------------------------------
+// Take a navigation measurement: a dial with a yellow target marker rotated
+// to a random angle (±ARC_MAX_ANGLE) and a green slider that sweeps back and
+// forth across the arc automatically. Press SPACE (or the controller's X
+// button) when the slider overlaps the target. ARC_WINS_NEEDED hits in a row
+// take the measurement (update the navigation display's measured state to the
+// ship's real position and direction); a miss resets the streak.
+// Esc (or the controller's B button) aborts without measuring.
+class MeasurementScene extends Phaser.Scene {
+  constructor() {
+    super({ key: 'measurement' });
+  }
+
+  preload() {
+    this.load.image('arc', 'imgs/arc.png');
+    this.load.image('arc_target', 'imgs/arc_target.png');
+    this.load.image('arc_slider', 'imgs/arc_slider.png');
+  }
+
+  create() {
+    this.cameras.main.setBackgroundColor('#101018');
+
+    // The dial in the middle of the screen. All three images are 600x600
+    // with their markings at the 3-o'clock position, so they rotate around
+    // the shared image center and the markers travel along the arc.
+    const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT / 2;
+    this.add.image(cx, cy, 'arc');
+    this.target = this.add.image(cx, cy, 'arc_target');
+    this.slider = this.add.image(cx, cy, 'arc_slider');
+
+    // The streak of successful hits; ARC_WINS_NEEDED in a row take the
+    // measurement. The target's angle is re-rolled after every press.
+    this.wins = 0;
+    this.newTarget();
+
+    // The slider sweeps between -ARC_MAX_ANGLE and +ARC_MAX_ANGLE, going up
+    // (counterclockwise) 45° first, then down 90°, up 90°, and so on.
+    this.sliderAngle = 0;
+    this.sliderDir = -1;
+
+    // Descriptive text: what to do, and how many hits are left.
+    this.add
+      .text(GAME_WIDTH / 2, 40, 'Take a navigation measurement!', {
+        fontFamily: 'monospace',
+        fontSize: '28px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5);
+    this.add
+      .text(
+        GAME_WIDTH / 2,
+        80,
+        'Press SPACE (or X) when the green slider overlaps the yellow target.\n' +
+          'A miss resets the streak. ESC (or B) aborts.',
+        {
+          fontFamily: 'monospace',
+          fontSize: '16px',
+          color: '#aaaaaa',
+          align: 'center',
+        }
+      )
+      .setOrigin(0.5, 0);
+    this.streakText = this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT - 60, '', {
+        fontFamily: 'monospace',
+        fontSize: '24px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5);
+    this.feedbackText = this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT - 110, '', {
+        fontFamily: 'monospace',
+        fontSize: '24px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5);
+    this.updateStreakText();
+
+    // SPACE (or the controller's X button, edge-detected in update) tries a
+    // hit. Esc (or the controller's B button) aborts.
+    this.input.keyboard.on('keydown-SPACE', () => this.tryHit());
+    this.padXWasDown = false;
+    this.padBWasDown = false;
+    this.input.keyboard.on('keydown-ESC', () => {
+      this.scene.start('MainScene');
+    });
+  }
+
+  // Roll a new random target angle (±ARC_MAX_ANGLE) and rotate the marker.
+  newTarget() {
+    this.targetAngle = Phaser.Math.FloatBetween(-ARC_MAX_ANGLE, ARC_MAX_ANGLE);
+    this.target.setAngle(this.targetAngle);
+  }
+
+  updateStreakText() {
+    this.streakText.setText(
+      'Hits in a row: ' +
+        this.wins +
+        ' / ' +
+        ARC_WINS_NEEDED +
+        '  (' +
+        (ARC_WINS_NEEDED - this.wins) +
+        ' to go)'
+    );
+  }
+
+  // A press: count a hit when the slider's angle is within the offset
+  // allowance of the target's angle, otherwise reset the streak.
+  tryHit() {
+    if (gameOver) return; // frozen
+    const off = Math.abs(this.sliderAngle - this.targetAngle);
+    if (off <= ARC_TOLERANCE) {
+      this.wins++;
+      if (this.wins >= ARC_WINS_NEEDED) {
+        // Measurement taken: copy the ship's real position and direction
+        // into the measured state shown on the navigation screen.
+        navSim.measuredX = navSim.shipX;
+        navSim.measuredY = navSim.shipY;
+        navSim.measuredAngle = navSim.angle;
+        this.scene.start('MainScene');
+        return;
+      }
+      this.feedbackText.setText('HIT!').setColor('#00ff00');
+    } else {
+      this.wins = 0;
+      this.feedbackText.setText('Miss — streak reset!').setColor('#ff0000');
+    }
+    this.newTarget();
+    this.updateStreakText();
+  }
+
+  update(time, delta) {
+    // Game over: show the debug text and freeze everything.
+    if (gameOver) {
+      showGameOver(this);
+      return;
+    }
+    const dt = delta / 1000;
+    // The ship keeps flying and the battery keeps draining while measuring.
+    updateNavSim(dt);
+    updatePowerSim(dt);
+
+    // Sweep the slider back and forth between -ARC_MAX_ANGLE and
+    // +ARC_MAX_ANGLE, reversing at the ends of the arc.
+    this.sliderAngle += this.sliderDir * ARC_SLIDER_SPEED * dt;
+    if (this.sliderAngle <= -ARC_MAX_ANGLE) {
+      this.sliderAngle = -ARC_MAX_ANGLE;
+      this.sliderDir = 1;
+    } else if (this.sliderAngle >= ARC_MAX_ANGLE) {
+      this.sliderAngle = ARC_MAX_ANGLE;
+      this.sliderDir = -1;
+    }
+    this.slider.setAngle(this.sliderAngle);
+
+    // Controller: the X button presses like SPACE, the B button exits like
+    // Esc.
+    const pad = this.input.gamepad ? this.input.gamepad.pad1 : null;
+    if (pad && pad.X && !this.padXWasDown) this.tryHit();
+    this.padXWasDown = !!(pad && pad.X);
+    if (pad && pad.B && !this.padBWasDown) this.scene.start('MainScene');
+    this.padBWasDown = !!(pad && pad.B);
+  }
+}
+
 // --- Game config ------------------------------------------------------------
 const config = {
   type: Phaser.AUTO,
@@ -667,7 +871,13 @@ const config = {
       debug: false,
     },
   },
-  scene: [MainScene, NavigationScreenScene, ElectricityGeneratorScene, SteeringWheelScene],
+  scene: [
+    MainScene,
+    NavigationScreenScene,
+    ElectricityGeneratorScene,
+    SteeringWheelScene,
+    MeasurementScene,
+  ],
 };
 
 const game = new Phaser.Game(config);
