@@ -130,8 +130,11 @@ function updateNavSim(dt) {
   // Steer like a car: the ship turns at a rate proportional to the wheel's
   // (persistent) deflection.
   navSim.angle += (navSim.wheel / MAX_WHEEL_ANGLE) * STEER_SPEED * dt;
-  navSim.shipX += Math.cos(navSim.angle) * SHIP_SPEED * dt;
-  navSim.shipY += Math.sin(navSim.angle) * SHIP_SPEED * dt;
+  // No fuel, no thrust: the ship stands still (steering still works).
+  if (fuelSim.fuel > 0) {
+    navSim.shipX += Math.cos(navSim.angle) * SHIP_SPEED * dt;
+    navSim.shipY += Math.sin(navSim.angle) * SHIP_SPEED * dt;
+  }
   // Leaving the map boundaries is game over: freeze the game.
   const s = MONITOR_SCREEN;
   if (
