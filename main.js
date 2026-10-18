@@ -221,6 +221,11 @@ function syncNavShipLive(ship) {
   if (!ship) return; // no overlay in release mode
   ship.setPosition(navSim.shipX, navSim.shipY);
   ship.setRotation(navSim.angle);
+  // ... and the remaining distance to the earth (the goal).
+  if (ship.distanceText) {
+    const d = Math.hypot(GOAL_X - navSim.shipX, GOAL_Y - navSim.shipY);
+    ship.distanceText.setText('Distance to Earth: ' + Math.round(d));
+  }
 }
 
 // Debug overlay: a transparent, always-on-top view of the navigation screen
@@ -234,7 +239,17 @@ function createNavOverlay(scene) {
     .rectangle(ov.x + ov.width / 2, ov.y + ov.height / 2, ov.width, ov.height, 0xffffff, 0.06)
     .setDepth(1000);
   scene.add.rectangle(GOAL_X, GOAL_Y, GOAL_SIZE, GOAL_SIZE, 0x00ff00, 0.5).setDepth(1001);
-  return createNavShip(scene, 0.6, 1002);
+  const ship = createNavShip(scene, 0.6, 1002);
+  // A counter of the remaining distance to the earth (the goal), in nav px;
+  // updated by syncNavShipLive.
+  ship.distanceText = scene.add
+    .text(ov.x + 8, ov.y + 4, '', {
+      fontFamily: 'monospace',
+      fontSize: '14px',
+      color: '#ffffff',
+    })
+    .setDepth(1002);
+  return ship;
 }
 
 // Debug end-of-game display: a big text slapped over the whole screen of
@@ -866,38 +881,47 @@ const STAR_COUNT = 80;
 // the center pedestal.
 const WINDSHIELD = { x: 56, y: 40, width: 684, height: 320 };
 const WHEEL_X = GAME_WIDTH / 2;
-const WHEEL_Y = 370;
+const WHEEL_Y = 470;
 // Objects seen through the windshield (the earth, the asteroids) represent
 // things on the navigation screen: their positions and sizes come from the
 // ship's real position and pointing direction in the navigation simulation.
-const WINDSHIELD_REF_DIST = 400; // nav px: the distance at which an object is shown at its reference size
-const EARTH_REF_SIZE = 24; // px on screen at WINDSHIELD_REF_DIST
-const EARTH_MAX_SIZE = 300; // px: the biggest the earth can appear
-const ASTEROID_REF_SIZE = 28; // px on screen at WINDSHIELD_REF_DIST
-const ASTEROID_MAX_SIZE = 260; // px: the biggest an asteroid can appear
+// They are hidden beyond OBJECT_VISIBLE_DIST; at exactly that distance they
+// are OBJECT_MIN_SIZE px big, and they grow with the inverse square of the
+// distance until they fill the whole windshield.
+const OBJECT_VISIBLE_DIST = 150; // nav px: objects further away are invisible
+const OBJECT_MIN_SIZE = 2; // px on screen at OBJECT_VISIBLE_DIST
+const OBJECT_MAX_SIZE = 1200; // px: big enough to fill the whole windshield
 
 // Projects a navigation-space point onto the windshield: positions the image
 // at the point's bearing from the ship (same px/rad as the star drift, so it
 // pans in sync with the stars) and sizes it by the point's distance. Hides
-// the image when the point is outside the windshield's field of view.
-function projectToWindshield(image, targetX, targetY, refSize, maxSize) {
+// the image when the point is outside the windshield's field of view or too
+// far away to see.
+function projectToWindshield(image, targetX, targetY) {
   const dx = targetX - navSim.shipX;
   const dy = targetY - navSim.shipY;
   const rel = Phaser.Math.Angle.Wrap(Math.atan2(dy, dx) - navSim.angle);
-  if (Math.abs(rel) > WINDSHIELD_FOV / 2) {
+  const dist = Math.hypot(dx, dy);
+  if (Math.abs(rel) > WINDSHIELD_FOV / 2 || dist > OBJECT_VISIBLE_DIST) {
     image.setVisible(false);
     return;
   }
   const pxPerRad = WINDSHIELD.width / WINDSHIELD_FOV;
   image.setVisible(true);
   image.x = WINDSHIELD.x + WINDSHIELD.width / 2 + rel * pxPerRad;
-  const dist = Math.max(1, Math.hypot(dx, dy));
-  const size = Math.min(maxSize, (refSize * WINDSHIELD_REF_DIST) / dist);
+  const size = Math.min(
+    OBJECT_MAX_SIZE,
+    OBJECT_MIN_SIZE * (OBJECT_VISIBLE_DIST / Math.max(dist, 1)) ** 2
+  );
   image.setDisplaySize(size, size);
 }
 // The compass dial on the dashboard, right of the steering wheel.
 const COMPASS_X = 680;
 const COMPASS_Y = 480;
+// The fuel gauge on the dashboard, left of the steering wheel (opposite the
+// compass).
+const FUEL_GAUGE_X = GAME_WIDTH - COMPASS_X;
+const FUEL_GAUGE_Y = COMPASS_Y;
 
 class SteeringWheelScene extends Phaser.Scene {
   constructor() {
@@ -915,10 +939,12 @@ class SteeringWheelScene extends Phaser.Scene {
   create() {
     this.cameras.main.setBackgroundColor('#000000');
 
-    // The cockpit dashboard fills the whole screen.
+    // The cockpit dashboard fills the whole screen. It is drawn IN FRONT of
+    // the stars, the earth and the asteroids: its windshield area is
+    // transparent, so they show through it.
     this.add
       .image(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'wheel_base')
-      .setDepth(0);
+      .setDepth(2);
 
     // The star field, visible through the windshield; it drifts sideways
     // while steering.
@@ -975,7 +1001,7 @@ class SteeringWheelScene extends Phaser.Scene {
     }));
 
     // The steering wheel mounted on the center pedestal.
-    this.wheel = this.add.image(WHEEL_X, WHEEL_Y, 'wheel').setDepth(2);
+    this.wheel = this.add.image(WHEEL_X, WHEEL_Y, 'wheel').setDepth(3);
 
     // The same navigation debug overlay as on the main screen, so the ship's
     // real-time position and turning are visible while steering.
@@ -984,13 +1010,22 @@ class SteeringWheelScene extends Phaser.Scene {
     // Compass placeholder until the real compass graphic exists: a needle on
     // a small dial. It rotates against the ship's heading so it always points
     // north on the map.
-    this.add.circle(COMPASS_X, COMPASS_Y, 36, 0x000000, 0.5).setDepth(2);
+    this.add.circle(COMPASS_X, COMPASS_Y, 36, 0x000000, 0.5).setDepth(3);
     // The needle pivots on the middle of its base (the pin in the center of
     // the dial): origin 0.5, 1 = the middle of the bottom edge.
     this.compass = this.add
       .triangle(COMPASS_X, COMPASS_Y, 12, 0, 0, 34, 24, 34, 0xffcc00)
       .setOrigin(0.5, 1)
-      .setDepth(3);
+      .setDepth(4);
+
+    // The fuel gauge, mirroring the compass on the other side of the wheel:
+    // a dial with a needle that sweeps from empty (tip left) to full (tip
+    // right) across the top, updated with fuelSim.fuel in update().
+    this.add.circle(FUEL_GAUGE_X, FUEL_GAUGE_Y, 36, 0x000000, 0.5).setDepth(3);
+    this.fuelNeedle = this.add
+      .triangle(FUEL_GAUGE_X, FUEL_GAUGE_Y, 12, 0, 0, 34, 24, 34, 0xff3333)
+      .setOrigin(0.5, 1)
+      .setDepth(4);
 
     this.keys = {
       a: this.input.keyboard.addKey('A'),
@@ -1062,15 +1097,21 @@ class SteeringWheelScene extends Phaser.Scene {
     // when the ship points at the goal, off to a side (or hidden) otherwise,
     // growing as the ship gets closer. The asteroids sit at the obstacles'
     // bearings and spin slowly.
-    projectToWindshield(this.earth, GOAL_X, GOAL_Y, EARTH_REF_SIZE, EARTH_MAX_SIZE);
+    projectToWindshield(this.earth, GOAL_X, GOAL_Y);
     for (const a of this.asteroids) {
-      projectToWindshield(a.image, a.x, a.y, ASTEROID_REF_SIZE, ASTEROID_MAX_SIZE);
+      projectToWindshield(a.image, a.x, a.y);
       a.image.rotation += a.spin * dt;
     }
 
     // The compass needle rotates against the ship's heading, always pointing
     // north on the map (navSim.angle 0 = east, so north is angle -π/2).
     this.compass.setRotation(-(navSim.angle + Math.PI / 2));
+
+    // The fuel gauge needle sweeps from empty (tip left) to full (tip
+    // right) across the top of the dial.
+    this.fuelNeedle.setRotation(
+      -Math.PI / 2 + Math.PI * (fuelSim.fuel / FUEL_MAX)
+    );
   }
 }
 
