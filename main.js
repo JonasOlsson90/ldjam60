@@ -38,12 +38,32 @@ const JUMP_SPEED = 550; // px/s upwards (reaches ~100 px high)
 // Navigation screen: bounds of the monitor's screen inside comrad64.png
 // (measured from the image). This is the field the ship will navigate in later.
 const MONITOR_SCREEN = { x: 56, y: 63, width: 684, height: 464 };
-// The goal square at the top-right of the monitor screen: the end station of
-// the mission.
+// The goal square: the end station of the mission. It is placed randomly
+// somewhere along the edge of the monitor screen, 16 px from the edge
+// (measured to the square's side, like before).
 const GOAL_SIZE = 24;
 const GOAL_MARGIN = 16;
-const GOAL_X = MONITOR_SCREEN.x + MONITOR_SCREEN.width - GOAL_MARGIN - GOAL_SIZE / 2;
-const GOAL_Y = MONITOR_SCREEN.y + GOAL_MARGIN + GOAL_SIZE / 2;
+const GOAL_INSET = GOAL_MARGIN + GOAL_SIZE / 2; // center distance from the edge
+const GOAL_SPAN_X = MONITOR_SCREEN.width - 2 * GOAL_INSET;
+const GOAL_SPAN_Y = MONITOR_SCREEN.height - 2 * GOAL_INSET;
+let GOAL_X, GOAL_Y;
+switch (Math.floor(Math.random() * 4)) {
+  case 0: // top edge
+    GOAL_X = MONITOR_SCREEN.x + GOAL_INSET + Math.random() * GOAL_SPAN_X;
+    GOAL_Y = MONITOR_SCREEN.y + GOAL_INSET;
+    break;
+  case 1: // right edge
+    GOAL_X = MONITOR_SCREEN.x + MONITOR_SCREEN.width - GOAL_INSET;
+    GOAL_Y = MONITOR_SCREEN.y + GOAL_INSET + Math.random() * GOAL_SPAN_Y;
+    break;
+  case 2: // bottom edge
+    GOAL_X = MONITOR_SCREEN.x + GOAL_INSET + Math.random() * GOAL_SPAN_X;
+    GOAL_Y = MONITOR_SCREEN.y + MONITOR_SCREEN.height - GOAL_INSET;
+    break;
+  default: // left edge
+    GOAL_X = MONITOR_SCREEN.x + GOAL_INSET;
+    GOAL_Y = MONITOR_SCREEN.y + GOAL_INSET + Math.random() * GOAL_SPAN_Y;
+}
 
 // --- Navigation simulation ---------------------------------------------------
 // The ship shown on the navigation screen. This simulation ALWAYS runs in the
@@ -55,10 +75,10 @@ const MAX_WHEEL_ANGLE = Math.PI; // steering wheel clamp: half a turn each way
 const navSim = {
   // Real-time position (game px, inside MONITOR_SCREEN) and pointing
   // direction in radians (0 = right, positive = clockwise). The ship
-  // constantly moves in the direction it points to. Starts in the bottom
-  // left of the screen, pointing up towards the goal.
-  shipX: MONITOR_SCREEN.x + GOAL_MARGIN + 20,
-  shipY: MONITOR_SCREEN.y + MONITOR_SCREEN.height - GOAL_MARGIN - 20,
+  // constantly moves in the direction it points to. Starts in the center
+  // of the screen, pointing up.
+  shipX: MONITOR_SCREEN.x + MONITOR_SCREEN.width / 2,
+  shipY: MONITOR_SCREEN.y + MONITOR_SCREEN.height / 2,
   angle: -Math.PI / 2,
   // The steering wheel's deflection in radians (0 = centered). It acts like
   // a car's steering wheel: it keeps its position until turned back, and
@@ -69,8 +89,8 @@ const navSim = {
   // navigation screen displays — frozen until the next measurement. It is
   // only updated when the player climbs out of the top of the screen and
   // wins the measurement minigame.
-  measuredX: MONITOR_SCREEN.x + GOAL_MARGIN + 20,
-  measuredY: MONITOR_SCREEN.y + MONITOR_SCREEN.height - GOAL_MARGIN - 20,
+  measuredX: MONITOR_SCREEN.x + MONITOR_SCREEN.width / 2,
+  measuredY: MONITOR_SCREEN.y + MONITOR_SCREEN.height / 2,
   measuredAngle: -Math.PI / 2,
   // When the last measurement was taken (performance.now() timestamp in ms),
   // or null if the position has never been measured.
