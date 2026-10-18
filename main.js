@@ -76,16 +76,30 @@ switch (Math.floor(Math.random() * 4)) {
 }
 
 // Obstacles in space, shown on the navigation screen (placeholder graphic:
-// bad.png). Fixed positions inside the monitor screen, kept clear of the
-// ship's start in the center. Hitting one is game over.
+// bad.png). Randomly placed on every page load, kept clear of the ship's
+// start in the center, of the edges (so they can not overlap the goal) and
+// of each other. Hitting one is game over.
 const OBSTACLE_SIZE = 36;
-const OBSTACLES = [
-  { x: 200, y: 150 },
-  { x: 550, y: 180 },
-  { x: 300, y: 400 },
-  { x: 620, y: 380 },
-  { x: 150, y: 320 },
-];
+const OBSTACLE_COUNT = 5;
+const OBSTACLE_EDGE_MARGIN = 60; // px from the monitor screen's edge
+const OBSTACLE_START_MARGIN = 100; // px from the ship's start in the center
+const OBSTACLE_SPACING = 90; // px between obstacles
+const OBSTACLES = [];
+while (OBSTACLES.length < OBSTACLE_COUNT) {
+  const x =
+    MONITOR_SCREEN.x +
+    OBSTACLE_EDGE_MARGIN +
+    Math.random() * (MONITOR_SCREEN.width - 2 * OBSTACLE_EDGE_MARGIN);
+  const y =
+    MONITOR_SCREEN.y +
+    OBSTACLE_EDGE_MARGIN +
+    Math.random() * (MONITOR_SCREEN.height - 2 * OBSTACLE_EDGE_MARGIN);
+  const startX = MONITOR_SCREEN.x + MONITOR_SCREEN.width / 2;
+  const startY = MONITOR_SCREEN.y + MONITOR_SCREEN.height / 2;
+  if (Math.hypot(x - startX, y - startY) < OBSTACLE_START_MARGIN) continue;
+  if (OBSTACLES.some((o) => Math.hypot(x - o.x, y - o.y) < OBSTACLE_SPACING)) continue;
+  OBSTACLES.push({ x, y });
+}
 
 // --- Navigation simulation ---------------------------------------------------
 // The ship shown on the navigation screen. This simulation ALWAYS runs in the
