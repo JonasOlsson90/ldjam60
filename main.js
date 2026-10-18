@@ -630,9 +630,21 @@ class NavigationScreenScene extends Phaser.Scene {
 // generates power; the battery always drains slowly. For now the minigame
 // just shows the battery level as a number.
 // Esc (or the controller's B button) returns to 'MainScene'.
+// A pedal stroke faster than this (ms between alternating strokes) counts as
+// fast; only fast strokes recharge the battery.
+const PEDAL_FAST_MS = 100;
 class ElectricityGeneratorScene extends Phaser.Scene {
   constructor() {
     super({ key: 'electricityGenerator' });
+  }
+
+  preload() {
+    // The pedaling cyclist: 6-frame spritesheet, 200x150 per frame. Frame 1:
+    // idle; frames 2-4: slow pedaling; frames 5-6: fast pedaling.
+    this.load.spritesheet('cycler', 'imgs/Sprite-0003.png', {
+      frameWidth: 200,
+      frameHeight: 150,
+    });
   }
 
   create() {
@@ -647,12 +659,44 @@ class ElectricityGeneratorScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
+    // The cyclist in the bottom left corner, shown at 2x size; it mirrors
+    // the pedaling (idle / slow / fast) in update().
+    this.cycler = this.add
+      .sprite(200, GAME_HEIGHT - 150, 'cycler')
+      .setScale(2)
+      .setFrame(0);
+    if (!this.anims.exists('pedal_slow')) {
+      this.anims.create({
+        key: 'pedal_slow',
+        frames: this.anims.generateFrameNumbers('cycler', { frames: [1, 2, 3] }),
+        frameRate: 6,
+        repeat: -1,
+      });
+    }
+    if (!this.anims.exists('pedal_fast')) {
+      this.anims.create({
+        key: 'pedal_fast',
+        frames: this.anims.generateFrameNumbers('cycler', { frames: [4, 5] }),
+        frameRate: 10,
+        repeat: -1,
+      });
+    }
+    // Pedal stroke timing, for picking the cyclist's animation.
+    this.lastStrokeAt = 0; // ms of the last counted stroke
+    this.strokeInterval = Infinity; // ms between the last two strokes
+
     // Pedaling: each time the pedal side changes, power is generated.
     this.lastPedalSide = null;
     this.pedal = (side) => {
       if (gameOver || gameWon) return; // frozen
       if (this.lastPedalSide !== null && side !== this.lastPedalSide) {
-        powerSim.battery = Math.min(BATTERY_MAX, powerSim.battery + PEDAL_BOOST * POWER_SPEED);
+        const now = performance.now();
+        this.strokeInterval = now - this.lastStrokeAt;
+        this.lastStrokeAt = now;
+        // Only fast pedaling recharges the battery.
+        if (this.strokeInterval < PEDAL_FAST_MS) {
+          powerSim.battery = Math.min(BATTERY_MAX, powerSim.battery + PEDAL_BOOST * POWER_SPEED);
+        }
       }
       this.lastPedalSide = side;
     };
@@ -679,6 +723,30 @@ class ElectricityGeneratorScene extends Phaser.Scene {
     updatePowerSim(delta / 1000);
     updateFuelSim(delta / 1000);
     this.batteryText.setText(Math.round(powerSim.battery) + '%');
+
+    // A full battery ends the minigame. The battery drains a little every
+    // frame (before this check), so it never sits at exactly 100 — treat
+    // anything within half a percent of full as full.
+    if (powerSim.battery >= BATTERY_MAX - 0.5) {
+      this.scene.start('MainScene');
+      return;
+    }
+
+    // The cyclist mirrors the input: idle when no pedal stroke came for a
+    // moment, pedaling slowly for slow strokes and fast for fast ones.
+    const sinceStroke = performance.now() - this.lastStrokeAt;
+    if (sinceStroke > 600) {
+      if (this.cycler.anims.isPlaying) this.cycler.anims.stop();
+      this.cycler.setFrame(0);
+    } else {
+      const anim =
+        this.strokeInterval < PEDAL_FAST_MS ? 'pedal_fast' : 'pedal_slow';
+      if (
+        !this.cycler.anims.isPlaying ||
+        this.cycler.anims.currentAnim.key !== anim
+      )
+        this.cycler.play(anim);
+    }
 
     // Controller: the D-pad left/right pedals (each press is a stroke, like
     // the A/D keys) and the B button exits like Esc.
