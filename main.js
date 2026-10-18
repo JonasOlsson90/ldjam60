@@ -250,6 +250,10 @@ function updateFuelSim(dt) {
 }
 
 // --- Main scene -------------------------------------------------------------
+// The ambience loops for the entire game. Started once in the main scene
+// (which is restarted when returning from minigames — hence the flag).
+let ambienceStarted = false;
+
 class MainScene extends Phaser.Scene {
   constructor() {
     super({ key: 'MainScene' });
@@ -262,12 +266,22 @@ class MainScene extends Phaser.Scene {
       frameWidth: 63,
       frameHeight: 132,
     });
+    // The looping ambience.
+    this.load.audio('ambience', 'sound/lusit_sven-bitcrushed-ambience-600682.mp3');
     // Load other textures and audio here, e.g.:
     // this.load.image('bg', 'assets/bg.png');
   }
 
   create() {
     this.cameras.main.setBackgroundColor('#16213e');
+
+    // Start the looping ambience (once — this scene restarts on return from
+    // minigames). Browsers block audio until the first user input; Phaser
+    // starts the sound as soon as the context unlocks.
+    if (!ambienceStarted) {
+      ambienceStarted = true;
+      this.sound.play('ambience', { loop: true, volume: 0.5 });
+    }
 
     // Full-screen background (source is 400x300, upscaled 2x for a crisp
     // pixel-art look). The PNG has a transparent margin, so the page
