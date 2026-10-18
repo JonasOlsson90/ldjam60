@@ -116,9 +116,12 @@ const MEASURE_RETURN_DROP = 140;
 // Set when the ship travels outside the map boundaries: the game freezes
 // (a proper game over image comes later).
 let gameOver = false;
+// Set when the ship reaches the goal: the game is won and freezes (a proper
+// win screen comes later).
+let gameWon = false;
 
 function updateNavSim(dt) {
-  if (gameOver) return;
+  if (gameOver || gameWon) return;
   // Steer like a car: the ship turns at a rate proportional to the wheel's
   // (persistent) deflection.
   navSim.angle += (navSim.wheel / MAX_WHEEL_ANGLE) * STEER_SPEED * dt;
@@ -133,6 +136,13 @@ function updateNavSim(dt) {
     navSim.shipY > s.y + s.height
   ) {
     gameOver = true;
+  }
+  // Reaching the goal wins the game: freeze it like a game over.
+  if (
+    Math.abs(navSim.shipX - GOAL_X) < GOAL_SIZE / 2 &&
+    Math.abs(navSim.shipY - GOAL_Y) < GOAL_SIZE / 2
+  ) {
+    gameWon = true;
   }
 }
 
@@ -156,15 +166,16 @@ function syncNavShipLive(ship) {
   ship.setRotation(navSim.angle);
 }
 
-// Debug game over display: a big text slapped over the whole screen of
-// whatever scene is active. Scrapped once the real game over image exists.
-function showGameOver(scene) {
-  if (scene.gameOverText && scene.gameOverText.active) return;
-  scene.gameOverText = scene.add
-    .text(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'GAME OVER', {
+// Debug end-of-game display: a big text slapped over the whole screen of
+// whatever scene is active. Scrapped once the real end screens exist.
+function showEndText(scene) {
+  if (scene.endText && scene.endText.active) return;
+  const won = gameWon && !gameOver;
+  scene.endText = scene.add
+    .text(GAME_WIDTH / 2, GAME_HEIGHT / 2, won ? 'YOU WIN!' : 'GAME OVER', {
       fontFamily: 'monospace',
       fontSize: '96px',
-      color: '#ff0000',
+      color: won ? '#00ff00' : '#ff0000',
       stroke: '#000000',
       strokeThickness: 8,
     })
@@ -318,8 +329,8 @@ class MainScene extends Phaser.Scene {
 
   update(time, delta) {
     // Game over: show the debug text and freeze everything.
-    if (gameOver) {
-      showGameOver(this);
+    if (gameOver || gameWon) {
+      showEndText(this);
       return;
     }
     const dt = delta / 1000;
@@ -517,8 +528,8 @@ class NavigationScreenScene extends Phaser.Scene {
 
   update(time, delta) {
     // Game over: show the debug text and freeze everything.
-    if (gameOver) {
-      showGameOver(this);
+    if (gameOver || gameWon) {
+      showEndText(this);
       return;
     }
     // Advance the shared simulations and show the ship's state.
@@ -567,7 +578,7 @@ class ElectricityGeneratorScene extends Phaser.Scene {
     // Pedaling: each time the pedal side changes, power is generated.
     this.lastPedalSide = null;
     this.pedal = (side) => {
-      if (gameOver) return; // frozen
+      if (gameOver || gameWon) return; // frozen
       if (this.lastPedalSide !== null && side !== this.lastPedalSide) {
         powerSim.battery = Math.min(BATTERY_MAX, powerSim.battery + PEDAL_BOOST * POWER_SPEED);
       }
@@ -589,8 +600,8 @@ class ElectricityGeneratorScene extends Phaser.Scene {
 
   update(time, delta) {
     // Game over: show the debug text and freeze everything.
-    if (gameOver) {
-      showGameOver(this);
+    if (gameOver || gameWon) {
+      showEndText(this);
       return;
     }
     updatePowerSim(delta / 1000);
@@ -679,8 +690,8 @@ class SteeringWheelScene extends Phaser.Scene {
 
   update(time, delta) {
     // Game over: show the debug text and freeze everything.
-    if (gameOver) {
-      showGameOver(this);
+    if (gameOver || gameWon) {
+      showEndText(this);
       return;
     }
     const dt = delta / 1000;
@@ -837,7 +848,7 @@ class MeasurementScene extends Phaser.Scene {
   // A press: count a hit when the slider's angle is within the offset
   // allowance of the target's angle, otherwise reset the streak.
   tryHit() {
-    if (gameOver) return; // frozen
+    if (gameOver || gameWon) return; // frozen
     const off = Math.abs(this.sliderAngle - this.targetAngle);
     if (off <= ARC_TOLERANCE) {
       this.wins++;
@@ -862,8 +873,8 @@ class MeasurementScene extends Phaser.Scene {
 
   update(time, delta) {
     // Game over: show the debug text and freeze everything.
-    if (gameOver) {
-      showGameOver(this);
+    if (gameOver || gameWon) {
+      showEndText(this);
       return;
     }
     const dt = delta / 1000;
