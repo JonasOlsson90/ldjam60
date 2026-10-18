@@ -12,6 +12,11 @@ const COMPUTER_ZONE = { x: 40, y: 150, width: 160, height: 110 };
 // bottom-left corner (game coordinates, measured from ship_interior.png).
 const BIKE_ZONE = { x: 30, y: 440, width: 250, height: 130 };
 
+// Distiller trigger: the area around the distiller in the ship's bottom-right
+// corner (game coordinates, measured from ship_interior.png). It sits at the
+// right edge of the screen, so the player exits to the left of it (exit: -1).
+const DISTILLER_ZONE = { x: 650, y: 440, width: 140, height: 130, exit: -1 };
+
 // Steering wheel trigger: the area in front of the steering wheel in the
 // ship's top-right corner (game coordinates). It sits at the right edge of
 // the screen, so the player exits to the left of it (exit: -1).
@@ -456,7 +461,7 @@ class MainScene extends Phaser.Scene {
 
     // Minigame triggers: the computer opens the navigation screen, the bike
     // opens the electricity generator, the steering wheel opens the steering
-    // minigame.
+    // minigame, the distiller opens the dino run.
     const inComputer =
       p.x >= COMPUTER_ZONE.x &&
       p.x <= COMPUTER_ZONE.x + COMPUTER_ZONE.width &&
@@ -472,6 +477,11 @@ class MainScene extends Phaser.Scene {
       p.x <= STEERING_ZONE.x + STEERING_ZONE.width &&
       p.y >= STEERING_ZONE.y &&
       p.y <= STEERING_ZONE.y + STEERING_ZONE.height;
+    const inDistiller =
+      p.x >= DISTILLER_ZONE.x &&
+      p.x <= DISTILLER_ZONE.x + DISTILLER_ZONE.width &&
+      p.y >= DISTILLER_ZONE.y &&
+      p.y <= DISTILLER_ZONE.y + DISTILLER_ZONE.height;
 
     let target = null;
     let zone = null;
@@ -484,6 +494,9 @@ class MainScene extends Phaser.Scene {
     } else if (inSteering) {
       target = 'steeringWheel';
       zone = STEERING_ZONE;
+    } else if (inDistiller) {
+      target = 'distiller';
+      zone = DISTILLER_ZONE;
     }
     if (!this._leaving && target) {
       this._leaving = true;
@@ -925,6 +938,158 @@ class MeasurementScene extends Phaser.Scene {
   }
 }
 
+// --- Distiller minigame scene -------------------------------------------------
+// Dino run: the player hurries a bottle to the fuel tank before the distiller
+// drinks it all. The player runs in place on the left of the screen while the
+// world scrolls by; jump over the obstacles and reach the fuel tank — the
+// whole run takes about 10 seconds. Tripping over an obstacle spills the
+// bottle: back to the ship to try again. Esc (or the controller's B button)
+// aborts.
+const RUN_SPEED = 240; // px/s the world scrolls past the player
+const RUN_END = 10; // s: the fuel tank reaches the player at this time
+const RUN_GROUND = 500; // y of the player's feet
+const RUN_PLAYER_X = 150;
+const RUN_OBSTACLE_SIZE = 48;
+// Times (s) when the obstacles enter from the right edge of the screen.
+const RUN_OBSTACLE_SPAWNS = [0.5, 2, 3.5, 4.8];
+
+class DistillerScene extends Phaser.Scene {
+  constructor() {
+    super({ key: 'distiller' });
+  }
+
+  preload() {
+    // Placeholder art until the real graphics are created: the obstacles are
+    // the measurement target, the fuel tank is the measurement slider (both
+    // normally loaded by the measurement scene, but the distiller can be
+    // played before that scene ever ran). The runner uses the regular player
+    // sprite, which the main scene always loads first.
+    if (!this.textures.exists('arc_target'))
+      this.load.image('arc_target', 'imgs/arc_target.png');
+    if (!this.textures.exists('arc_slider'))
+      this.load.image('arc_slider', 'imgs/arc_slider.png');
+  }
+
+  create() {
+    this.cameras.main.setBackgroundColor('#101018');
+
+    // The ground the player runs on.
+    this.add.rectangle(GAME_WIDTH / 2, RUN_GROUND, GAME_WIDTH, 4, 0xffffff, 0.3);
+
+    // The player runs in place on the left of the screen.
+    this.runner = this.add.sprite(RUN_PLAYER_X, RUN_GROUND - 66, 'player');
+    this.runner.play('walk');
+    this.jumpVy = 0; // < 0 while jumping
+
+    this.obstacles = [];
+    this.spawnIndex = 0;
+    this.runTime = 0;
+    this.tank = null;
+    this.failed = false;
+
+    // Jump: SPACE / UP / W, or the controller's X button / D-pad up (all
+    // edge-detected in update). Esc (or B) aborts.
+    this.keys = {
+      space: this.input.keyboard.addKey('SPACE'),
+      up: this.input.keyboard.addKey('UP'),
+      w: this.input.keyboard.addKey('W'),
+    };
+    this.jumpWasDown = false;
+    this.padBWasDown = false;
+    this.input.keyboard.on('keydown-ESC', () => {
+      this.scene.start('MainScene');
+    });
+  }
+
+  update(time, delta) {
+    // Game over: show the debug text and freeze everything.
+    if (gameOver || gameWon) {
+      showEndText(this);
+      return;
+    }
+    const dt = delta / 1000;
+    // The ship keeps flying and the battery keeps draining while running.
+    updateNavSim(dt);
+    updatePowerSim(dt);
+
+    // The controller's B button exits like Esc.
+    const pad = this.input.gamepad ? this.input.gamepad.pad1 : null;
+    if (pad && pad.B && !this.padBWasDown) this.scene.start('MainScene');
+    this.padBWasDown = !!(pad && pad.B);
+    if (this.failed) return;
+
+    this.runTime += dt;
+    const feetY = () => this.runner.y + this.runner.displayHeight / 2;
+
+    // Jump (edge-detected), only from the ground.
+    const jumpDown =
+      this.keys.space.isDown ||
+      this.keys.up.isDown ||
+      this.keys.w.isDown ||
+      !!(pad && (pad.X || pad.up));
+    if (jumpDown && !this.jumpWasDown && feetY() >= RUN_GROUND - 0.5) {
+      this.jumpVy = -JUMP_SPEED;
+    }
+    this.jumpWasDown = jumpDown;
+
+    // Gravity: the runner lands back on the ground line.
+    if (feetY() < RUN_GROUND - 0.5 || this.jumpVy < 0) {
+      this.runner.y += this.jumpVy * dt;
+      this.jumpVy += GRAVITY * dt;
+      if (feetY() >= RUN_GROUND) {
+        this.runner.y = RUN_GROUND - this.runner.displayHeight / 2;
+        this.jumpVy = 0;
+      }
+    }
+
+    // Spawn the obstacles on schedule; they slide in from the right.
+    while (
+      this.spawnIndex < RUN_OBSTACLE_SPAWNS.length &&
+      this.runTime >= RUN_OBSTACLE_SPAWNS[this.spawnIndex]
+    ) {
+      const ob = this.add.image(
+        GAME_WIDTH + 50,
+        RUN_GROUND - RUN_OBSTACLE_SIZE / 2,
+        'arc_target'
+      );
+      ob.setDisplaySize(RUN_OBSTACLE_SIZE, RUN_OBSTACLE_SIZE);
+      this.obstacles.push(ob);
+      this.spawnIndex++;
+    }
+
+    // The fuel tank slides in so that it reaches the player at RUN_END.
+    if (
+      !this.tank &&
+      this.runTime >= RUN_END - (GAME_WIDTH + 50 - RUN_PLAYER_X - 60) / RUN_SPEED
+    ) {
+      this.tank = this.add.image(GAME_WIDTH + 50, RUN_GROUND - 60, 'arc_slider');
+      this.tank.setDisplaySize(90, 120);
+    }
+
+    // Scroll the world past the player.
+    for (const ob of this.obstacles) ob.x -= RUN_SPEED * dt;
+    if (this.tank) this.tank.x -= RUN_SPEED * dt;
+
+    // Tripping over an obstacle spills the bottle.
+    for (const ob of this.obstacles) {
+      if (
+        Math.abs(ob.x - RUN_PLAYER_X) <
+          (RUN_OBSTACLE_SIZE + this.runner.displayWidth) / 2 - 8 &&
+        feetY() > RUN_GROUND - RUN_OBSTACLE_SIZE + 8
+      ) {
+        this.failed = true;
+        this.runner.setTint(0xff0000);
+        this.time.delayedCall(800, () => this.scene.start('MainScene'));
+      }
+    }
+
+    // Reaching the fuel tank: the bottle is delivered.
+    if (this.tank && this.tank.x <= RUN_PLAYER_X + 60) {
+      this.scene.start('MainScene');
+    }
+  }
+}
+
 // --- Game config ------------------------------------------------------------
 const config = {
   type: Phaser.AUTO,
@@ -951,6 +1116,7 @@ const config = {
     ElectricityGeneratorScene,
     SteeringWheelScene,
     MeasurementScene,
+    DistillerScene,
   ],
 };
 
