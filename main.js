@@ -917,11 +917,12 @@ function projectToWindshield(image, targetX, targetY) {
 }
 // The compass dial on the dashboard, right of the steering wheel.
 const COMPASS_X = 680;
-const COMPASS_Y = 480;
+const COMPASS_Y = 525;
 // The fuel gauge on the dashboard, left of the steering wheel (opposite the
 // compass).
 const FUEL_GAUGE_X = GAME_WIDTH - COMPASS_X;
 const FUEL_GAUGE_Y = COMPASS_Y;
+const GAUGE_SIZE = 90; // px: compass and fuel gauge display size
 
 class SteeringWheelScene extends Phaser.Scene {
   constructor() {
@@ -934,6 +935,8 @@ class SteeringWheelScene extends Phaser.Scene {
     this.load.image('wheel', 'imgs/wheel.png');
     this.load.image('earth', 'imgs/earth.png');
     this.load.image('asteroid', 'imgs/asteroid.png');
+    this.load.image('compass', 'imgs/compass.png');
+    this.load.image('fuel_gauge', 'imgs/fuel_gauge.png');
   }
 
   create() {
@@ -1007,21 +1010,21 @@ class SteeringWheelScene extends Phaser.Scene {
     // real-time position and turning are visible while steering.
     this.navShipDebug = createNavOverlay(this);
 
-    // Compass placeholder until the real compass graphic exists: a needle on
-    // a small dial. It rotates against the ship's heading so it always points
-    // north on the map.
-    this.add.circle(COMPASS_X, COMPASS_Y, 36, 0x000000, 0.5).setDepth(3);
-    // The needle pivots on the middle of its base (the pin in the center of
-    // the dial): origin 0.5, 1 = the middle of the bottom edge.
+    // The compass rose rotates against the ship's heading so it always points
+    // north on the map. The image pivots around its center.
     this.compass = this.add
-      .triangle(COMPASS_X, COMPASS_Y, 12, 0, 0, 34, 24, 34, 0xffcc00)
-      .setOrigin(0.5, 1)
+      .image(COMPASS_X, COMPASS_Y, 'compass')
+      .setOrigin(0.5, 0.5)
+      .setDisplaySize(GAUGE_SIZE, GAUGE_SIZE)
       .setDepth(4);
 
     // The fuel gauge, mirroring the compass on the other side of the wheel:
-    // a dial with a needle that sweeps from empty (tip left) to full (tip
-    // right) across the top, updated with fuelSim.fuel in update().
-    this.add.circle(FUEL_GAUGE_X, FUEL_GAUGE_Y, 36, 0x000000, 0.5).setDepth(3);
+    // the dial image with a red needle that sweeps from empty (tip left) to
+    // full (tip right) across the top, updated with fuelSim.fuel in update().
+    this.add
+      .image(FUEL_GAUGE_X, FUEL_GAUGE_Y, 'fuel_gauge')
+      .setDisplaySize(GAUGE_SIZE, GAUGE_SIZE)
+      .setDepth(3);
     this.fuelNeedle = this.add
       .triangle(FUEL_GAUGE_X, FUEL_GAUGE_Y, 12, 0, 0, 34, 24, 34, 0xff3333)
       .setOrigin(0.5, 1)
@@ -1103,7 +1106,7 @@ class SteeringWheelScene extends Phaser.Scene {
       a.image.rotation += a.spin * dt;
     }
 
-    // The compass needle rotates against the ship's heading, always pointing
+    // The compass rose rotates against the ship's heading, always pointing
     // north on the map (navSim.angle 0 = east, so north is angle -π/2).
     this.compass.setRotation(-(navSim.angle + Math.PI / 2));
 
