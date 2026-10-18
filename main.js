@@ -75,6 +75,18 @@ switch (Math.floor(Math.random() * 4)) {
     GOAL_Y = MONITOR_SCREEN.y + GOAL_INSET + Math.random() * GOAL_SPAN_Y;
 }
 
+// Obstacles in space, shown on the navigation screen (placeholder graphic:
+// bad.png). Fixed positions inside the monitor screen, kept clear of the
+// ship's start in the center. Hitting one is game over.
+const OBSTACLE_SIZE = 36;
+const OBSTACLES = [
+  { x: 200, y: 150 },
+  { x: 550, y: 180 },
+  { x: 300, y: 400 },
+  { x: 620, y: 380 },
+  { x: 150, y: 320 },
+];
+
 // --- Navigation simulation ---------------------------------------------------
 // The ship shown on the navigation screen. This simulation ALWAYS runs in the
 // background (whatever scene is active advances it); the scenes only
@@ -161,6 +173,14 @@ function updateNavSim(dt) {
     navSim.shipY > s.y + s.height
   ) {
     gameOver = true;
+  }
+  // Hitting an obstacle is game over: freeze the game.
+  for (const o of OBSTACLES) {
+    const dx = navSim.shipX - o.x;
+    const dy = navSim.shipY - o.y;
+    if (Math.sqrt(dx * dx + dy * dy) < OBSTACLE_SIZE / 2 + 6) {
+      gameOver = true;
+    }
   }
   // Reaching the goal wins the game: freeze it like a game over.
   if (
@@ -576,11 +596,18 @@ class NavigationScreenScene extends Phaser.Scene {
 
   preload() {
     this.load.image('comrad64', 'imgs/comrad64.png');
+    this.load.image('bad', 'imgs/bad.png');
   }
 
   create() {
     // Full-screen background (source is 800x600, the game resolution).
     this.add.image(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'comrad64').setDepth(0);
+
+    // The obstacles in space (placeholder graphic); part of the navigational
+    // data, so they go blind with the rest of the screen.
+    this.obstacles = OBSTACLES.map((o) =>
+      this.add.image(o.x, o.y, 'bad').setDisplaySize(OBSTACLE_SIZE, OBSTACLE_SIZE).setDepth(10)
+    );
 
     // The goal: a static square near the top-right corner of the monitor
     // screen, with a small margin. The ship navigates towards it.
@@ -654,6 +681,7 @@ class NavigationScreenScene extends Phaser.Scene {
         : (performance.now() - navSim.measuredAt) / 1000;
     const showData = !noPower && dataAge <= NAV_DATA_TTL;
     this.ship.setVisible(showData);
+    for (const ob of this.obstacles) ob.setVisible(showData);
     if (showData) syncNavShipLive(this.ship);
     this.ageText.setVisible(showData);
     if (showData) {
