@@ -5,7 +5,7 @@ const GAME_HEIGHT = 600;
 // Debug mode: shows the navigation debug overlay (the transparent monitor
 // screen area with the goal and the ship's live position) in the main scene
 // and the steering minigame. false = release: no overlay.
-const DEBUG = true;
+const DEBUG = false;
 
 // Navigation screen trigger: the area in front of the computer on the desk in
 // the ship's top-left cabin (game coordinates, measured from ship_interior.png,
