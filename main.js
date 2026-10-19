@@ -9,7 +9,7 @@ const DEBUG = false;
 
 // Skip the intro animation (text crawl, zoom, ship fade) on the title screen:
 // SPACE jumps straight into the ship.
-const SKIP_INTRO = true;
+const SKIP_INTRO = false;
 
 // Navigation screen trigger: the area in front of the computer on the desk in
 // the ship's top-left cabin (game coordinates, measured from ship_interior.png,
