@@ -281,6 +281,7 @@ function showEndText(scene) {
   // scenes' updates return early on game over, so syncBlackout can not hide
   // it any more — do it here).
   if (scene.blackoutText) scene.blackoutText.visible = false;
+  if (scene.noFuelText) scene.noFuelText.visible = false;
   if (scene.endText && scene.endText.active) return;
   const won = gameWon && !gameOver;
   scene.endText = scene.add
@@ -379,6 +380,19 @@ function syncBlackout(scene) {
       .setOrigin(0.5)
       .setDepth(BLACKOUT_DEPTH + 1);
   }
+  // The fuel warning, in the same style (below the power warning, so both
+  // can show at once).
+  if (!scene.noFuelText || !scene.noFuelText.active) {
+    scene.noFuelText = scene.add
+      .text(GAME_WIDTH / 2, 120, 'OUT OF FUEL!', {
+        fontFamily: 'monospace',
+        fontSize: '20px',
+        color: '#ffffff',
+        align: 'center',
+      })
+      .setOrigin(0.5)
+      .setDepth(BLACKOUT_DEPTH + 1);
+  }
   const out = powerSim.battery <= 0;
   scene.blackout.visible = out;
   scene.blackoutText.visible = out;
@@ -387,6 +401,7 @@ function syncBlackout(scene) {
       'OUT OF POWER!\n' + Math.ceil(oxygenLeft) + ' seconds of oxygen left'
     );
   }
+  scene.noFuelText.visible = fuelSim.fuel <= 0;
 }
 
 // --- Fuel simulation -----------------------------------------------------------
