@@ -370,6 +370,25 @@ function updateFuelSim(dt) {
   fuelSim.fuel = Math.max(0, fuelSim.fuel - FUEL_DRAIN * FUEL_SPEED * dt);
 }
 
+// The music for the main game and the minigames without their own track
+// (navigation screen, steering wheel). Started when SPACE is pressed on
+// the title screen; the minigames with their own music (measurement, bike,
+// refuel) pause it and the main scene resumes it on return.
+let kosmosMusic = null;
+function startKosmos(scene) {
+  if (!kosmosMusic) {
+    kosmosMusic = scene.sound.add('kosmos', { loop: true });
+    kosmosMusic.play();
+  } else if (kosmosMusic.isPaused) {
+    kosmosMusic.resume();
+  } else if (!kosmosMusic.isPlaying) {
+    kosmosMusic.play();
+  }
+}
+function pauseKosmos() {
+  if (kosmosMusic && kosmosMusic.isPlaying) kosmosMusic.pause();
+}
+
 // --- Start screen -----------------------------------------------------------
 // Title screen: the big logo above the ship's exterior, drifting stars behind
 // (same star field as the other space scenes). SPACE starts the intro: a text
@@ -392,6 +411,8 @@ class StartScene extends Phaser.Scene {
     this.load.image('star', 'imgs/star.png');
     this.load.image('logo_big', 'imgs/logo_big.png');
     this.load.image('ship_exterior', 'imgs/ship_exterior.png');
+    // The main game music, started when the intro begins.
+    this.load.audio('kosmos', 'sound/Padanaya Blokov.mp3');
   }
 
   create() {
@@ -426,6 +447,8 @@ class StartScene extends Phaser.Scene {
     this.phase = 'title';
     this.input.keyboard.once('keydown-SPACE', () => {
       this.phase = 'crawl';
+      // The main game music starts with the intro.
+      startKosmos(this);
       this.startText.setVisible(false);
       this.tweens.add({ targets: this.logo, alpha: 0, duration: 500 });
       // The crawl text starts just below the screen (origin = its top edge)
@@ -481,10 +504,6 @@ class StartScene extends Phaser.Scene {
 }
 
 // --- Main scene -------------------------------------------------------------
-// The ambience loops for the entire game. Started once in the main scene
-// (which is restarted when returning from minigames — hence the flag).
-let ambienceStarted = false;
-
 class MainScene extends Phaser.Scene {
   constructor() {
     super({ key: 'MainScene' });
@@ -500,14 +519,14 @@ class MainScene extends Phaser.Scene {
       frameWidth: 63,
       frameHeight: 132,
     });
-    // The looping ambience.
-    this.load.audio('ambience', 'sound/lusit_sven-bitcrushed-ambience-600682.mp3');
     // The jump sound (also used by the refuel minigame).
     this.load.audio('blep', 'sound/fx/blep.mp3');
     // The footstep sound for the walking animation.
     this.load.audio('tap', 'sound/fx/tap.mp3');
     // The climbing sounds, alternating while the ladder is climbed.
     this.load.audio('blop', 'sound/fx/blop.mp3');
+    // The main game music (normally already cached by the start scene).
+    if (!this.cache.audio.exists('kosmos')) this.load.audio('kosmos', 'sound/Padanaya Blokov.mp3');
     // Load other textures and audio here, e.g.:
     // this.load.image('bg', 'assets/bg.png');
   }
@@ -515,13 +534,9 @@ class MainScene extends Phaser.Scene {
   create() {
     this.cameras.main.setBackgroundColor('#16213e');
 
-    // Start the looping ambience (once — this scene restarts on return from
-    // minigames). Browsers block audio until the first user input; Phaser
-    // starts the sound as soon as the context unlocks.
-    if (!ambienceStarted) {
-      ambienceStarted = true;
-      this.sound.play('ambience', { loop: true, volume: 0.5 });
-    }
+    // Resume the main game music (paused while a minigame with its own
+    // music was open).
+    startKosmos(this);
 
     // Full-screen background (source is 400x300, upscaled 2x for a crisp
     // pixel-art look). The PNG has a transparent margin, so the page
@@ -979,10 +994,30 @@ class ElectricityGeneratorScene extends Phaser.Scene {
       frameWidth: 200,
       frameHeight: 150,
     });
+    // The pedal stroke sound (normally already cached by the main scene).
+    if (!this.cache.audio.exists('tap')) this.load.audio('tap', 'sound/fx/tap.mp3');
+    // The bike minigame music.
+    this.load.audio('bike', 'sound/bike.mp3');
   }
 
   create() {
     this.cameras.main.setBackgroundColor('#101018');
+
+    // What to do.
+    this.add
+      .text(
+        GAME_WIDTH / 2,
+        40,
+        'Press LEFT and RIGHT repeatedly very fast to power battery!',
+        {
+          fontFamily: 'monospace',
+          fontSize: '20px',
+          color: '#ffffff',
+          align: 'center',
+        }
+      )
+      .setOrigin(0.5)
+      .setDepth(10);
 
     // The current battery power as a plain number (0-100%).
     this.batteryText = this.add
@@ -1019,10 +1054,22 @@ class ElectricityGeneratorScene extends Phaser.Scene {
     this.lastStrokeAt = 0; // ms of the last counted stroke
     this.strokeInterval = Infinity; // ms between the last two strokes
 
+    // The music: it loops for the whole minigame, starting silently. The
+    // volume follows the pedaling speed in update(). The global sound
+    // manager keeps sounds alive across scene transitions, so stop it
+    // explicitly when the scene shuts down. The main game music pauses
+    // while this minigame's own track plays.
+    pauseKosmos();
+    this.music = this.sound.add('bike', { loop: true, volume: 0 });
+    this.music.play();
+    this.events.once('shutdown', () => this.music.stop());
+
     // Pedaling: each time the pedal side changes, power is generated.
     this.lastPedalSide = null;
     this.pedal = (side) => {
       if (gameOver || gameWon) return; // frozen
+      // A tap on every pedal press (keyboard and controller D-pad alike).
+      this.sound.play('tap');
       if (this.lastPedalSide !== null && side !== this.lastPedalSide) {
         const now = performance.now();
         this.strokeInterval = now - this.lastStrokeAt;
@@ -1034,10 +1081,20 @@ class ElectricityGeneratorScene extends Phaser.Scene {
       }
       this.lastPedalSide = side;
     };
-    this.input.keyboard.on('keydown-A', () => this.pedal('left'));
-    this.input.keyboard.on('keydown-LEFT', () => this.pedal('left'));
-    this.input.keyboard.on('keydown-D', () => this.pedal('right'));
-    this.input.keyboard.on('keydown-RIGHT', () => this.pedal('right'));
+    // OS key auto-repeat is filtered out so a held key can not machine-gun
+    // pedal strokes (and their sounds) — one stroke per real keypress.
+    this.input.keyboard.on('keydown-A', (e) => {
+      if (!e.repeat) this.pedal('left');
+    });
+    this.input.keyboard.on('keydown-LEFT', (e) => {
+      if (!e.repeat) this.pedal('left');
+    });
+    this.input.keyboard.on('keydown-D', (e) => {
+      if (!e.repeat) this.pedal('right');
+    });
+    this.input.keyboard.on('keydown-RIGHT', (e) => {
+      if (!e.repeat) this.pedal('right');
+    });
 
     // Esc (or the controller's B button) returns to the main ship screen.
     this.padLeftWasDown = false;
@@ -1070,6 +1127,20 @@ class ElectricityGeneratorScene extends Phaser.Scene {
     // The cyclist mirrors the input: idle when no pedal stroke came for a
     // moment, pedaling slowly for slow strokes and fast for fast ones.
     const sinceStroke = performance.now() - this.lastStrokeAt;
+
+    // The music volume follows the pedaling speed: silent when idle, 100%
+    // once the strokes are as fast as the fast-pedaling animation
+    // (PEDAL_FAST_MS between alternating strokes). The volume rises slowly
+    // and falls faster, so it swells while the player speeds up.
+    const dt = delta / 1000;
+    let targetVol = 0;
+    if (sinceStroke <= 600 && this.strokeInterval < Infinity) {
+      targetVol = Phaser.Math.Clamp(PEDAL_FAST_MS / this.strokeInterval, 0, 1);
+    }
+    const vol = this.music.volume;
+    if (targetVol > vol) this.music.setVolume(Math.min(targetVol, vol + 0.5 * dt));
+    else if (targetVol < vol) this.music.setVolume(Math.max(targetVol, vol - 1.5 * dt));
+
     if (sinceStroke > 600) {
       if (this.cycler.anims.isPlaying) this.cycler.anims.stop();
       this.cycler.setFrame(0);
@@ -1377,10 +1448,21 @@ class MeasurementScene extends Phaser.Scene {
     this.load.audio('nav3', 'sound/fx/nav3.mp3');
     // The miss sound (also used for crashes in the refuel minigame).
     this.load.audio('ouch', 'sound/fx/ouch.mp3');
+    // The ambience, looping only while this minigame is open.
+    this.load.audio('ambience', 'sound/lusit_sven-bitcrushed-ambience-600682.mp3');
   }
 
   create() {
     this.cameras.main.setBackgroundColor('#101018');
+
+    // The ambience loops while the measurement is taken. The global sound
+    // manager keeps sounds alive across scene transitions, so stop it
+    // explicitly when the scene shuts down. The main game music pauses
+    // while this minigame's own track plays.
+    pauseKosmos();
+    this.music = this.sound.add('ambience', { loop: true, volume: 0.5 });
+    this.music.play();
+    this.events.once('shutdown', () => this.music.stop());
 
     // The star field behind everything: stars of differing sizes drift from
     // right to left at speeds proportional to their size (bigger = closer =
@@ -1607,6 +1689,8 @@ class DistillerScene extends Phaser.Scene {
     if (!this.cache.audio.exists('blep')) this.load.audio('blep', 'sound/fx/blep.mp3');
     // The crash sound for hitting an obstacle and slamming into the ground.
     if (!this.cache.audio.exists('ouch')) this.load.audio('ouch', 'sound/fx/ouch.mp3');
+    // The refuel minigame music.
+    this.load.audio('fuelrun', 'sound/fuelrun.mp3');
     // The runner: 2-frame spritesheet, 100x125 per frame.
     if (!this.textures.exists('runner'))
       this.load.spritesheet('runner', 'imgs/Sprite-0002.png', {
@@ -1629,6 +1713,15 @@ class DistillerScene extends Phaser.Scene {
     this.time.removeAllEvents();
 
     this.cameras.main.setBackgroundColor('#101018');
+
+    // The music: it loops for the whole run. The global sound manager keeps
+    // sounds alive across scene transitions, so stop it explicitly when the
+    // scene shuts down. The main game music pauses while this minigame's
+    // own track plays.
+    pauseKosmos();
+    this.music = this.sound.add('fuelrun', { loop: true });
+    this.music.play();
+    this.events.once('shutdown', () => this.music.stop());
 
     // The ground the player runs on.
     this.add.rectangle(GAME_WIDTH / 2, RUN_GROUND, GAME_WIDTH, 4, 0xffffff, 0.3);
