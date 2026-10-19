@@ -1577,7 +1577,7 @@ class DistillerScene extends Phaser.Scene {
         GAME_WIDTH / 2,
         40,
         'Hurry to the fuel tank before the fuel is gone!\n' +
-          'Press SPACE to jump and RIGHT to run!',
+          'Press SPACE to jump!',
         {
           fontFamily: 'monospace',
           fontSize: '20px',
