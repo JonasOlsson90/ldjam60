@@ -287,7 +287,16 @@ function showEndText(scene) {
   // it any more — do it here).
   if (scene.blackoutText) scene.blackoutText.visible = false;
   if (scene.noFuelText) scene.noFuelText.visible = false;
-  if (scene.endText && scene.endText.active) return;
+  if (scene.endText && scene.endText.active) {
+    // Already shown: just keep the restart hint on the currently used
+    // input method.
+    setInputText(
+      scene.endRestartText,
+      'press SPACE to play again',
+      'press START to play again'
+    );
+    return;
+  }
   const won = gameWon && !gameOver;
   scene.endText = scene.add
     .text(GAME_WIDTH / 2, GAME_HEIGHT / 2, won ? 'За здоровье!' : 'Игра закончена!', {
@@ -316,18 +325,14 @@ function showEndText(scene) {
       .setOrigin(0.5)
       .setDepth(10000);
   }
-  // A new run is one key press away.
-  scene.add
-    .text(
-      GAME_WIDTH / 2,
-      GAME_HEIGHT / 2 + 130,
-      'press SPACE (or START) to play again',
-      {
-        fontFamily: 'monospace',
-        fontSize: '16px',
-        color: '#ffffff',
-      }
-    )
+  // A new run is one key press away. The hint follows the currently used
+  // input method (updated every frame above).
+  scene.endRestartText = scene.add
+    .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 130, 'press SPACE to play again', {
+      fontFamily: 'monospace',
+      fontSize: '16px',
+      color: '#ffffff',
+    })
     .setOrigin(0.5)
     .setDepth(10000);
   // SPACE starts a new game from the first splash screen. The controller's
@@ -338,11 +343,11 @@ function showEndText(scene) {
     scene.scene.start('start');
   });
   const pad = scene.input.gamepad ? scene.input.gamepad.pad1 : null;
-  if (pad && pad.start && !scene.endPadStartWasDown) {
+  if (padStartDown(pad) && !scene.endPadStartWasDown) {
     resetGame();
     scene.scene.start('start');
   }
-  scene.endPadStartWasDown = !!(pad && pad.start);
+  scene.endPadStartWasDown = padStartDown(pad);
 }
 
 // Starts a fresh run after game over / win: every piece of global state back
@@ -490,6 +495,34 @@ function pauseKosmos() {
   if (kosmosMusic && kosmosMusic.isPlaying) kosmosMusic.pause();
 }
 
+// The controller's START button: Phaser's gamepad class has no named
+// property for it (only A/B/X/Y, the shoulders and the D-pad), so read the
+// raw button (index 9 in the standard mapping).
+function padStartDown(pad) {
+  return !!(pad && pad.buttons[9] && pad.buttons[9].pressed);
+}
+
+// The controller's left analog stick (standard mapping: axes 0 = X, 1 = Y,
+// each -1..1). Smaller deflections than the deadzone count as centered.
+const STICK_DEADZONE = 0.25;
+function padStickX(pad) {
+  return pad && pad.axes[0] ? pad.axes[0].getValue() : 0;
+}
+function padStickY(pad) {
+  return pad && pad.axes[1] ? pad.axes[1].getValue() : 0;
+}
+
+// The last-used input method ('keyboard' | 'gamepad'): the on-screen
+// instructions only mention the controls the player is actually using.
+// Updated by the global listeners registered at the bottom of the file.
+let lastInputMethod = 'keyboard';
+// Sets an instruction text for the current input method, only touching the
+// text object when the content actually changed (safe to call every frame).
+function setInputText(textObj, keyboardText, gamepadText) {
+  const t = lastInputMethod === 'gamepad' ? gamepadText : keyboardText;
+  if (textObj.text !== t) textObj.setText(t);
+}
+
 // --- Start screen -----------------------------------------------------------
 // Title screen: the big logo above the ship's exterior, drifting stars behind
 // (same star field as the other space scenes). SPACE starts the intro: a text
@@ -537,29 +570,12 @@ class StartScene extends Phaser.Scene {
     this.ship = this.add.image(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'ship_exterior');
     this.logo = this.add.image(GAME_WIDTH / 2, 110, 'logo_big');
     this.startText = this.add
-      .text(GAME_WIDTH / 2, GAME_HEIGHT - 110, 'press SPACE (or START) to start', {
+      .text(GAME_WIDTH / 2, GAME_HEIGHT - 110, 'press SPACE to start', {
         fontFamily: 'monospace',
         fontSize: '20px',
         color: '#ffffff',
       })
       .setOrigin(0.5);
-
-    // Fullscreen toggle in the bottom right corner (the ldjam59 approach:
-    // start/stop explicitly and mirror the state in the label).
-    this.fsBtn = this.add
-      .text(GAME_WIDTH - 10, GAME_HEIGHT - 10, '[FULL SCREEN]', {
-        fontFamily: 'monospace',
-        fontSize: '16px',
-        color: '#ffffff',
-      })
-      .setOrigin(1, 1)
-      .setInteractive({ useHandCursor: true });
-    this.fsBtn.on('pointerdown', () => {
-      if (this.scale.isFullscreen) this.scale.stopFullscreen();
-      else this.scale.startFullscreen();
-    });
-    this.scale.on('enterfullscreen', () => this.fsBtn.setText('[EXIT FULL SCREEN]'));
-    this.scale.on('leavefullscreen', () => this.fsBtn.setText('[FULL SCREEN]'));
 
     // The intro sequence: 'title' -> 'crawl' -> 'zoom' -> scene.start.
     // Started by SPACE or the controller's START button (edge-detected in
@@ -600,8 +616,11 @@ class StartScene extends Phaser.Scene {
 
     // The controller's START button starts the intro like SPACE.
     const pad = this.input.gamepad ? this.input.gamepad.pad1 : null;
-    if (pad && pad.start && !this.padStartWasDown) this.startIntro();
-    this.padStartWasDown = !!(pad && pad.start);
+    if (padStartDown(pad) && !this.padStartWasDown) this.startIntro();
+    this.padStartWasDown = padStartDown(pad);
+
+    // Show the instructions for the currently used input method.
+    setInputText(this.startText, 'press SPACE to start', 'press START to start');
 
     // The star field always drifts from right to left, wrapping at the edges.
     for (const s of this.stars) {
@@ -781,10 +800,10 @@ class MainScene extends Phaser.Scene {
     // transition is only queued once (reset on every scene start).
     this._leaving = false;
 
-    // Set by the space bar or the controller's X button (consumed in update):
+    // Set by the space bar or the controller's A button (consumed in update):
     // request a small jump.
     this.jumpRequested = false;
-    this.padXWasDown = false;
+    this.padAWasDown = false;
     this.input.keyboard.on('keydown-SPACE', () => {
       this.jumpRequested = true;
     });
@@ -809,15 +828,21 @@ class MainScene extends Phaser.Scene {
     const dt = delta / 1000;
     const p = this.player;
 
-    // Input: keyboard (arrows or WASD) or an Xbox controller (D-pad moves,
-    // X jumps).
+    // Input: keyboard (arrows or WASD) or an Xbox controller (D-pad or the
+    // left analog stick moves, A jumps).
     const pad = this.input.gamepad ? this.input.gamepad.pad1 : null;
-    const moveLeft = this.cursors.left.isDown || this.wasd.a.isDown || !!(pad && pad.left);
-    const moveRight = this.cursors.right.isDown || this.wasd.d.isDown || !!(pad && pad.right);
-    const moveUp = this.cursors.up.isDown || this.wasd.w.isDown || !!(pad && pad.up);
-    const moveDown = this.cursors.down.isDown || this.wasd.s.isDown || !!(pad && pad.down);
-    if (pad && pad.X && !this.padXWasDown) this.jumpRequested = true;
-    this.padXWasDown = !!(pad && pad.X);
+    const stickX = padStickX(pad);
+    const stickY = padStickY(pad);
+    const moveLeft =
+      this.cursors.left.isDown || this.wasd.a.isDown || !!(pad && pad.left) || stickX < -STICK_DEADZONE;
+    const moveRight =
+      this.cursors.right.isDown || this.wasd.d.isDown || !!(pad && pad.right) || stickX > STICK_DEADZONE;
+    const moveUp =
+      this.cursors.up.isDown || this.wasd.w.isDown || !!(pad && pad.up) || stickY < -STICK_DEADZONE;
+    const moveDown =
+      this.cursors.down.isDown || this.wasd.s.isDown || !!(pad && pad.down) || stickY > STICK_DEADZONE;
+    if (pad && pad.A && !this.padAWasDown) this.jumpRequested = true;
+    this.padAWasDown = !!(pad && pad.A);
 
     // Walking (always possible).
     if (moveLeft) p.x -= MOVE_SPEED * dt;
@@ -848,7 +873,7 @@ class MainScene extends Phaser.Scene {
       // airborne — then gravity rules).
       this.playerVy = 0;
     } else {
-      // A space-bar press or X button while standing on a floor starts a
+      // A space-bar press or A button while standing on a floor starts a
       // small jump.
       if (this.jumpRequested && onFloor) {
         this.playerVy = -JUMP_SPEED;
@@ -1155,8 +1180,9 @@ class ElectricityGeneratorScene extends Phaser.Scene {
   create() {
     this.cameras.main.setBackgroundColor('#101018');
 
-    // What to do.
-    this.add
+    // What to do. The controls mentioned follow the currently used input
+    // method (updated every frame in update()).
+    this.instructionText = this.add
       .text(
         GAME_WIDTH / 2,
         40,
@@ -1307,11 +1333,19 @@ class ElectricityGeneratorScene extends Phaser.Scene {
         this.cycler.play(anim);
     }
 
-    // Controller: the D-pad left/right pedals (each press is a stroke, like
-    // the A/D keys) and the B button exits like Esc.
+    // Show the instructions for the currently used input method.
+    setInputText(
+      this.instructionText,
+      'Press LEFT and RIGHT repeatedly very fast to power battery!',
+      'Press LB and RB repeatedly very fast to power battery!'
+    );
+
+    // Controller: the shoulder buttons pedal (LB = left, RB = right; each
+    // press is a stroke, like the A/D keys) and the B button exits like
+    // Esc. L1/R1 return the analog value (0-1), 1 for a digital press.
     const pad = this.input.gamepad ? this.input.gamepad.pad1 : null;
-    const leftDown = !!(pad && pad.left);
-    const rightDown = !!(pad && pad.right);
+    const leftDown = !!(pad && pad.L1);
+    const rightDown = !!(pad && pad.R1);
     if (leftDown && !this.padLeftWasDown) this.pedal('left');
     if (rightDown && !this.padRightWasDown) this.pedal('right');
     this.padLeftWasDown = leftDown;
@@ -1517,12 +1551,13 @@ class SteeringWheelScene extends Phaser.Scene {
     syncNavShipLive(this.navShipDebug);
 
     // Turn the steering wheel with A/D, the left/right arrow keys, or the
-    // controller's D-pad left/right.
+    // controller's D-pad / left analog stick left/right.
     const pad = this.input.gamepad ? this.input.gamepad.pad1 : null;
+    const stickX = padStickX(pad);
     const steerRight =
-      this.keys.d.isDown || this.keys.right.isDown || !!(pad && pad.right);
+      this.keys.d.isDown || this.keys.right.isDown || !!(pad && pad.right) || stickX > STICK_DEADZONE;
     const steerLeft =
-      this.keys.a.isDown || this.keys.left.isDown || !!(pad && pad.left);
+      this.keys.a.isDown || this.keys.left.isDown || !!(pad && pad.left) || stickX < -STICK_DEADZONE;
     const steer = (steerRight ? 1 : 0) - (steerLeft ? 1 : 0);
     if (steer !== 0) {
       navSim.wheel = Phaser.Math.Clamp(
@@ -1667,12 +1702,14 @@ class MeasurementScene extends Phaser.Scene {
         color: '#ffffff',
       })
       .setOrigin(0.5);
-    this.add
+    // The controls mentioned follow the currently used input method
+    // (updated every frame in update()).
+    this.instructionText = this.add
       .text(
         GAME_WIDTH / 2,
         80,
-        'Press SPACE (or X) when the green slider overlaps the yellow target.\n' +
-          'A miss resets the streak. ESC (or B) aborts.',
+        'Press SPACE when the green slider overlaps the yellow target.\n' +
+          'A miss resets the streak. ESC aborts.',
         {
           fontFamily: 'monospace',
           fontSize: '16px',
@@ -1796,6 +1833,15 @@ class MeasurementScene extends Phaser.Scene {
       if (s.x < -8) s.x += GAME_WIDTH + 16;
     }
 
+    // Show the instructions for the currently used input method.
+    setInputText(
+      this.instructionText,
+      'Press SPACE when the green slider overlaps the yellow target.\n' +
+        'A miss resets the streak. ESC aborts.',
+      'Press X when the green slider overlaps the yellow target.\n' +
+        'A miss resets the streak. B aborts.'
+    );
+
     // Controller: the X button presses like SPACE, the B button exits like
     // Esc.
     const pad = this.input.gamepad ? this.input.gamepad.pad1 : null;
@@ -1881,8 +1927,9 @@ class DistillerScene extends Phaser.Scene {
     // The ground the player runs on.
     this.add.rectangle(GAME_WIDTH / 2, RUN_GROUND, GAME_WIDTH, 4, 0xffffff, 0.3);
 
-    // What to do.
-    this.add
+    // What to do. The controls mentioned follow the currently used input
+    // method (updated every frame in update()).
+    this.instructionText = this.add
       .text(
         GAME_WIDTH / 2,
         40,
@@ -1957,7 +2004,7 @@ class DistillerScene extends Phaser.Scene {
       .setDepth(-1);
     this.tank.y = RUN_GROUND - this.tank.displayHeight / 2;
 
-    // Jump: SPACE / UP / W, or the controller's X button / D-pad up (all
+    // Jump: SPACE / UP / W, or the controller's A button / D-pad up (all
     // edge-detected in update). Esc (or B) aborts.
     this.keys = {
       space: this.input.keyboard.addKey('SPACE'),
@@ -1989,6 +2036,16 @@ class DistillerScene extends Phaser.Scene {
     const pad = this.input.gamepad ? this.input.gamepad.pad1 : null;
     if (pad && pad.B && !this.padBWasDown) this.scene.start('MainScene');
     this.padBWasDown = !!(pad && pad.B);
+
+    // Show the instructions for the currently used input method.
+    setInputText(
+      this.instructionText,
+      'Hurry to the fuel tank before the fuel is gone!\n' +
+        'Press SPACE to jump!',
+      'Hurry to the fuel tank before the fuel is gone!\n' +
+        'Press A to jump!'
+    );
+
     if (this.finished) return;
 
     const feetY = () => this.runner.y + this.runner.displayHeight / 2;
@@ -2009,7 +2066,7 @@ class DistillerScene extends Phaser.Scene {
       this.keys.space.isDown ||
       this.keys.up.isDown ||
       this.keys.w.isDown ||
-      !!(pad && (pad.X || pad.up));
+      !!(pad && (pad.A || pad.up));
     if (jumpDown && !this.jumpWasDown && feetY() >= RUN_GROUND - 0.5 && !this.fallen) {
       this.jumpVy = -JUMP_SPEED;
       this.sound.play('blep');
@@ -2153,3 +2210,31 @@ const game = new Phaser.Game(config);
 // browser focus (e.g. right after a page reload).
 game.input.keyboard.addCapture('UP,DOWN,LEFT,RIGHT,W,A,S,D,SPACE');
 game.canvas.addEventListener('mousedown', () => game.canvas.focus());
+
+// Track the last-used input method: any key press switches the
+// instructions to keyboard controls, any gamepad input to controller
+// controls.
+game.input.keyboard.on('keydown', () => {
+  lastInputMethod = 'keyboard';
+});
+if (game.input.gamepad) {
+  game.input.gamepad.on('down', () => {
+    lastInputMethod = 'gamepad';
+  });
+  game.input.gamepad.on('axis', () => {
+    lastInputMethod = 'gamepad';
+  });
+}
+
+// Fullscreen toggle, anywhere in the game: F on the keyboard or SELECT
+// (button 8 in the standard mapping) on the controller.
+function toggleFullscreen() {
+  if (game.scale.isFullscreen) game.scale.stopFullscreen();
+  else game.scale.startFullscreen();
+}
+game.input.keyboard.on('keydown-F', toggleFullscreen);
+if (game.input.gamepad) {
+  game.input.gamepad.on('down', (pad, button) => {
+    if (button.index === 8) toggleFullscreen();
+  });
+}
