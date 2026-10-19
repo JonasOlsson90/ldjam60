@@ -7,6 +7,10 @@ const GAME_HEIGHT = 600;
 // and the steering minigame. false = release: no overlay.
 const DEBUG = false;
 
+// Skip the intro animation (text crawl, zoom, ship fade) on the title screen:
+// SPACE jumps straight into the ship.
+const SKIP_INTRO = false;
+
 // Navigation screen trigger: the area in front of the computer on the desk in
 // the ship's top-left cabin (game coordinates, measured from ship_interior.png,
 // which is upscaled 2x). The navigation screen opens when the player's center
@@ -174,6 +178,8 @@ let gameOver = false;
 // Set when the ship reaches the goal: the game is won and freezes (a proper
 // win screen comes later).
 let gameWon = false;
+// Why the game was lost: a small description shown under the GAME OVER text.
+let gameOverReason = '';
 
 function updateNavSim(dt) {
   if (gameOver || gameWon) return;
@@ -194,6 +200,7 @@ function updateNavSim(dt) {
     navSim.shipY > s.y + s.height
   ) {
     gameOver = true;
+    gameOverReason = 'You are lost in space';
   }
   // Hitting an obstacle is game over: freeze the game.
   for (const o of OBSTACLES) {
@@ -201,6 +208,7 @@ function updateNavSim(dt) {
     const dy = navSim.shipY - o.y;
     if (Math.sqrt(dx * dx + dy * dy) < OBSTACLE_SIZE / 2 + 6) {
       gameOver = true;
+      gameOverReason = 'You ran into an astroid';
     }
   }
   // Reaching the goal wins the game: freeze it like a game over.
@@ -269,18 +277,39 @@ function createNavOverlay(scene) {
 // Debug end-of-game display: a big text slapped over the whole screen of
 // whatever scene is active. Scrapped once the real end screens exist.
 function showEndText(scene) {
+  // The oxygen countdown warning is obsolete once the game is over (the
+  // scenes' updates return early on game over, so syncBlackout can not hide
+  // it any more — do it here).
+  if (scene.blackoutText) scene.blackoutText.visible = false;
   if (scene.endText && scene.endText.active) return;
   const won = gameWon && !gameOver;
   scene.endText = scene.add
-    .text(GAME_WIDTH / 2, GAME_HEIGHT / 2, won ? 'YOU WIN!' : 'GAME OVER', {
+    .text(GAME_WIDTH / 2, GAME_HEIGHT / 2, won ? 'За здоровье!' : 'Игра закончена!', {
       fontFamily: 'monospace',
-      fontSize: '96px',
+      // The loss text is longer, so it gets a smaller size to fit the screen.
+      fontSize: won ? '96px' : '72px',
       color: won ? '#00ff00' : '#ff0000',
       stroke: '#000000',
       strokeThickness: 8,
     })
     .setOrigin(0.5)
     .setDepth(10000);
+  // A small line under the big text: why the game was lost, or a toast to
+  // reaching the mother land.
+  const reason = won
+    ? 'Congratulations comrade. You reached the Motherland.'
+    : gameOverReason;
+  if (reason) {
+    scene.endReasonText = scene.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 80, reason, {
+        fontFamily: 'monospace',
+        fontSize: '24px',
+        color: '#ffffff',
+        align: 'center',
+      })
+      .setOrigin(0.5)
+      .setDepth(10000);
+  }
 }
 
 // --- Power simulation ----------------------------------------------------------
@@ -302,7 +331,10 @@ function updatePowerSim(dt, rate = 1) {
   // Recharging the battery restores the full oxygen reserve.
   if (powerSim.battery <= 0) {
     oxygenLeft = Math.max(0, oxygenLeft - dt);
-    if (oxygenLeft <= 0) gameOver = true;
+    if (oxygenLeft <= 0) {
+      gameOver = true;
+      gameOverReason = 'You ran out of oxygen';
+    }
   } else {
     oxygenLeft = OXYGEN_SECONDS;
   }
@@ -446,6 +478,11 @@ class StartScene extends Phaser.Scene {
     // The intro sequence: 'title' -> 'crawl' -> 'zoom' -> scene.start.
     this.phase = 'title';
     this.input.keyboard.once('keydown-SPACE', () => {
+      // Skipping the intro: straight into the ship.
+      if (SKIP_INTRO) {
+        this.scene.start('MainScene');
+        return;
+      }
       this.phase = 'crawl';
       // The main game music starts with the intro.
       startKosmos(this);
