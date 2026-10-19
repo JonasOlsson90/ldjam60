@@ -86,8 +86,8 @@ switch (Math.floor(Math.random() * 4)) {
 // bad.png). Randomly placed on every page load, kept clear of the ship's
 // start in the center, of the edges (so they can not overlap the goal) and
 // of each other. Hitting one is game over.
-const OBSTACLE_SIZE = 36;
-const OBSTACLE_COUNT = 5;
+const OBSTACLE_SIZE = 24;
+const OBSTACLE_COUNT = 14;
 const OBSTACLE_EDGE_MARGIN = 60; // px from the monitor screen's edge
 const OBSTACLE_START_MARGIN = 100; // px from the ship's start in the center
 const OBSTACLE_SPACING = 90; // px between obstacles
@@ -246,6 +246,13 @@ function createNavOverlay(scene) {
     .rectangle(ov.x + ov.width / 2, ov.y + ov.height / 2, ov.width, ov.height, 0xffffff, 0.06)
     .setDepth(1000);
   scene.add.rectangle(GOAL_X, GOAL_Y, GOAL_SIZE, GOAL_SIZE, 0x00ff00, 0.5).setDepth(1001);
+  // The obstacles, in the same representation as on the navigation screen.
+  for (const o of OBSTACLES) {
+    scene.add
+      .image(o.x, o.y, 'bad')
+      .setDisplaySize(OBSTACLE_SIZE, OBSTACLE_SIZE)
+      .setDepth(1001);
+  }
   const ship = createNavShip(scene, 0.6, 1002);
   // A counter of the remaining distance to the earth (the goal), in nav px;
   // updated by syncNavShipLive.
@@ -317,6 +324,9 @@ class MainScene extends Phaser.Scene {
 
   preload() {
     this.load.image('ship_interior', 'imgs/ship_interior.png');
+    // The space obstacles, shown on the navigation screen and in the debug
+    // overlay (this scene loads first, so it provides the texture).
+    this.load.image('bad', 'imgs/bad.png');
     // Player: 2-frame spritesheet, 63x132 per frame.
     this.load.spritesheet('player', 'imgs/Sprite-0001.png', {
       frameWidth: 63,
@@ -646,7 +656,8 @@ class NavigationScreenScene extends Phaser.Scene {
 
   preload() {
     this.load.image('comrad64', 'imgs/comrad64.png');
-    this.load.image('bad', 'imgs/bad.png');
+    // The obstacle texture is normally provided by the main scene already.
+    if (!this.textures.exists('bad')) this.load.image('bad', 'imgs/bad.png');
   }
 
   create() {
