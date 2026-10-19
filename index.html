@@ -4,33 +4,19 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>LD Jam 60</title>
+  <!-- Scaling and centering are done by Phaser's scale manager
+       (Phaser.Scale.FIT + CENTER_BOTH, like in ldjam59). Custom CSS
+       overrides fight the scale manager's inline styles and break
+       fullscreen centering, so the styles stay minimal. -->
   <style>
-    html, body {
+    body {
       margin: 0;
-      padding: 0;
-      height: 100%;
-      overflow: hidden;
       background: black;
       user-select: none;
     }
-    body {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    /* Scale the canvas to fill the page while keeping its 4:3 aspect
-       ratio (like Phaser.Scale.FIT in ldjam59). Phaser's scale manager
-       pins #game to the game size with inline styles, so the overrides
-       need !important. */
-    #game {
-      width: auto !important;
-      height: auto !important;
-      transform: none !important;
-    }
+    /* Keep the pixel art crisp when the scale manager stretches the
+       canvas with CSS (this only affects rendering, not layout). */
     #game canvas {
-      width: min(100vw, calc(100vh * 4 / 3)) !important;
-      height: auto !important;
-      aspect-ratio: 4 / 3;
       image-rendering: pixelated;
     }
   </style>

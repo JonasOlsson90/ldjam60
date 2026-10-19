@@ -531,6 +531,23 @@ class StartScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
+    // Fullscreen toggle in the bottom right corner (the ldjam59 approach:
+    // start/stop explicitly and mirror the state in the label).
+    this.fsBtn = this.add
+      .text(GAME_WIDTH - 10, GAME_HEIGHT - 10, '[FULL SCREEN]', {
+        fontFamily: 'monospace',
+        fontSize: '16px',
+        color: '#ffffff',
+      })
+      .setOrigin(1, 1)
+      .setInteractive({ useHandCursor: true });
+    this.fsBtn.on('pointerdown', () => {
+      if (this.scale.isFullscreen) this.scale.stopFullscreen();
+      else this.scale.startFullscreen();
+    });
+    this.scale.on('enterfullscreen', () => this.fsBtn.setText('[EXIT FULL SCREEN]'));
+    this.scale.on('leavefullscreen', () => this.fsBtn.setText('[FULL SCREEN]'));
+
     // The intro sequence: 'title' -> 'crawl' -> 'zoom' -> scene.start.
     this.phase = 'title';
     this.input.keyboard.once('keydown-SPACE', () => {
@@ -2073,6 +2090,12 @@ const config = {
   // Nearest-neighbor filtering for the whole game: the 400x300 background
   // upscaled 2x to 800x600 stays crisp.
   pixelArt: true,
+  // Scale the game to fill the window/fullscreen while keeping the 4:3
+  // aspect ratio, centered (letterboxed) — the ldjam59 setup.
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
   input: {
     gamepad: true,
   },
