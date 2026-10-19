@@ -1483,7 +1483,9 @@ class MeasurementScene extends Phaser.Scene {
 const RUN_SPEED = 350; // px/s, constant
 const FALL_KNOCKBACK = 350; // px/s upwards when knocked off the feet
 const FALL_IMPACT_MS = 250; // ms showing the ground-impact frame
-const FALL_LIE_MS = 2000; // ms lying on the ground before getting up
+// ms from the hit until the runner gets up again (knock-up arc + impact +
+// lying): one authoritative recovery timer, independent of the animation.
+const FALL_RECOVER_MS = 3000;
 const RUN_TANK_DISTANCE = 3000; // px from the start to the fuel tank
 // Positions (px) of the obstacles along the run.
 const RUN_OBSTACLES = [700, 1250, 1800, 2350];
@@ -1518,6 +1520,10 @@ class DistillerScene extends Phaser.Scene {
   }
 
   create() {
+    // Kill any timers left over from a previous run of this scene, so they
+    // can not fire into the new run.
+    this.time.removeAllEvents();
+
     this.cameras.main.setBackgroundColor('#101018');
 
     // The ground the player runs on.
@@ -1655,30 +1661,26 @@ class DistillerScene extends Phaser.Scene {
     }
     this.jumpWasDown = jumpDown;
 
-    // Gravity: the runner lands back on the ground line.
-    if (feetY() < RUN_GROUND - 0.5 || this.jumpVy < 0) {
+    // Gravity: the runner lands back on the ground line. The condition must
+    // use the exact ground line: with any margin (e.g. RUN_GROUND - 0.5), a
+    // fall ending inside the margin escaped both this branch (feet at/below
+    // the margin while moving down) and the landing clamp below (feet above
+    // the ground line), freezing the runner mid-tumble forever.
+    if (feetY() < RUN_GROUND || this.jumpVy < 0) {
       this.runner.y += this.jumpVy * dt;
       this.jumpVy += GRAVITY * dt;
       if (feetY() >= RUN_GROUND) {
         this.runner.y = RUN_GROUND - this.runner.displayHeight / 2;
         this.jumpVy = 0;
         // Landing after being knocked down: show the impact frame briefly,
-        // then lie on the ground for a moment before getting up again.
+        // then lie on the ground. Visuals only — the actual recovery is done
+        // by the authoritative timer scheduled on the hit.
         if (this.fallen && !this.fallRecovering) {
           this.fallRecovering = true;
           this.runner.anims.stop();
           this.runner.setTexture('fall', 2);
           this.time.delayedCall(FALL_IMPACT_MS, () => {
-            this.runner.play('fall-lying');
-            this.time.delayedCall(FALL_LIE_MS, () => {
-              this.fallen = false;
-              this.fallRecovering = false;
-              this.speed = RUN_SPEED;
-              // play() stops the still-looping fall-lying animation and
-              // switches back to the runner spritesheet (a bare setTexture
-              // would be overridden by the still-playing animation).
-              this.runner.play('run');
-            });
+            if (this.fallen && this.runner.active) this.runner.play('fall-lying');
           });
         }
       }
@@ -1718,9 +1720,12 @@ class DistillerScene extends Phaser.Scene {
           this.fallen = true;
           this.speed = 0;
           // Knocked into the air, tumbling until gravity pulls the runner
-          // back down (the impact and lying frames play on landing).
+          // back down (the impact and lying frames play on landing). One
+          // authoritative recovery timer: whatever the animation does, the
+          // runner always gets up again.
           this.jumpVy = -FALL_KNOCKBACK;
           this.runner.play('falling');
+          this.time.delayedCall(FALL_RECOVER_MS, () => this.recoverFromFall());
         }
       }
     }
@@ -1731,6 +1736,19 @@ class DistillerScene extends Phaser.Scene {
       fuelSim.fuel = Math.min(FUEL_MAX, fuelSim.fuel + this.bottle);
       this.scene.start('MainScene');
     }
+  }
+
+  // Gets the runner back on their feet after a fall: called unconditionally by
+  // the recovery timer scheduled on the hit, so a stall in the impact/lying
+  // visuals can never leave the runner tumbling (and the run frozen) forever.
+  recoverFromFall() {
+    if (!this.fallen || !this.runner.active) return;
+    this.fallen = false;
+    this.fallRecovering = false;
+    this.speed = RUN_SPEED;
+    // play() also stops any still-playing fall animation and switches back
+    // from the fall spritesheet to the runner one.
+    this.runner.play('run');
   }
 }
 
