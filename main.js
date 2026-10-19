@@ -735,15 +735,6 @@ class MainScene extends Phaser.Scene {
     // always runs, no matter which scene is active.
     this.navShipDebug = createNavOverlay(this);
 
-    // Debug: battery status, always visible in the top left of the screen.
-    this.batteryDebug = this.add
-      .text(10, 10, '', { fontFamily: 'monospace', fontSize: '16px', color: '#ffffff' })
-      .setDepth(1003);
-    // Debug: fuel status, below the battery status.
-    this.fuelDebug = this.add
-      .text(10, 30, '', { fontFamily: 'monospace', fontSize: '16px', color: '#ffffff' })
-      .setDepth(1003);
-
     // Set once the computer triggers the navigation screen, so the scene
     // transition is only queued once (reset on every scene start).
     this._leaving = false;
@@ -846,11 +837,9 @@ class MainScene extends Phaser.Scene {
 
     // Advance the navigation simulation (the real-time ship position).
     updateNavSim(dt);
-    // The battery always drains slowly; show it in the debug display.
+    // The battery and fuel always drain slowly.
     updatePowerSim(dt);
     updateFuelSim(dt);
-    this.batteryDebug.setText('Battery: ' + Math.round(powerSim.battery) + '%');
-    this.fuelDebug.setText('Fuel: ' + Math.round(fuelSim.fuel) + '%');
     // The black square covers more and more of the wall battery meter as the
     // battery empties.
     this.batteryCover.setScale(1, 1 - powerSim.battery / BATTERY_MAX);
