@@ -87,30 +87,35 @@ switch (Math.floor(Math.random() * 4)) {
 }
 
 // Obstacles in space, shown on the navigation screen (placeholder graphic:
-// bad.png). Randomly placed on every page load, kept clear of the ship's
-// start in the center, of the edges (so they can not overlap the goal) and
-// of each other. Hitting one is game over.
+// bad.png). Randomly placed on every page load and on every new run, kept
+// clear of the ship's start in the center, of the edges (so they can not
+// overlap the goal) and of each other. Hitting one is game over.
 const OBSTACLE_SIZE = 24;
 const OBSTACLE_COUNT = 14;
 const OBSTACLE_EDGE_MARGIN = 60; // px from the monitor screen's edge
 const OBSTACLE_START_MARGIN = 100; // px from the ship's start in the center
 const OBSTACLE_SPACING = 90; // px between obstacles
 const OBSTACLES = [];
-while (OBSTACLES.length < OBSTACLE_COUNT) {
-  const x =
-    MONITOR_SCREEN.x +
-    OBSTACLE_EDGE_MARGIN +
-    Math.random() * (MONITOR_SCREEN.width - 2 * OBSTACLE_EDGE_MARGIN);
-  const y =
-    MONITOR_SCREEN.y +
-    OBSTACLE_EDGE_MARGIN +
-    Math.random() * (MONITOR_SCREEN.height - 2 * OBSTACLE_EDGE_MARGIN);
-  const startX = MONITOR_SCREEN.x + MONITOR_SCREEN.width / 2;
-  const startY = MONITOR_SCREEN.y + MONITOR_SCREEN.height / 2;
-  if (Math.hypot(x - startX, y - startY) < OBSTACLE_START_MARGIN) continue;
-  if (OBSTACLES.some((o) => Math.hypot(x - o.x, y - o.y) < OBSTACLE_SPACING)) continue;
-  OBSTACLES.push({ x, y });
+
+function randomizeObstacles() {
+  OBSTACLES.length = 0;
+  while (OBSTACLES.length < OBSTACLE_COUNT) {
+    const x =
+      MONITOR_SCREEN.x +
+      OBSTACLE_EDGE_MARGIN +
+      Math.random() * (MONITOR_SCREEN.width - 2 * OBSTACLE_EDGE_MARGIN);
+    const y =
+      MONITOR_SCREEN.y +
+      OBSTACLE_EDGE_MARGIN +
+      Math.random() * (MONITOR_SCREEN.height - 2 * OBSTACLE_EDGE_MARGIN);
+    const startX = MONITOR_SCREEN.x + MONITOR_SCREEN.width / 2;
+    const startY = MONITOR_SCREEN.y + MONITOR_SCREEN.height / 2;
+    if (Math.hypot(x - startX, y - startY) < OBSTACLE_START_MARGIN) continue;
+    if (OBSTACLES.some((o) => Math.hypot(x - o.x, y - o.y) < OBSTACLE_SPACING)) continue;
+    OBSTACLES.push({ x, y });
+  }
 }
+randomizeObstacles();
 
 // --- Navigation simulation ---------------------------------------------------
 // The ship shown on the navigation screen. This simulation ALWAYS runs in the
@@ -311,6 +316,42 @@ function showEndText(scene) {
       .setOrigin(0.5)
       .setDepth(10000);
   }
+  // A new run is one key press away.
+  scene.add
+    .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 130, 'press SPACE to play again', {
+      fontFamily: 'monospace',
+      fontSize: '16px',
+      color: '#ffffff',
+    })
+    .setOrigin(0.5)
+    .setDepth(10000);
+  // SPACE starts a new game from the first splash screen.
+  scene.input.keyboard.once('keydown-SPACE', () => {
+    resetGame();
+    scene.scene.start('start');
+  });
+}
+
+// Starts a fresh run after game over / win: every piece of global state back
+// to how it was when the game started, including a new random obstacle
+// layout (the per-scene state is rebuilt by each scene's create).
+function resetGame() {
+  randomizeObstacles();
+  gameOver = false;
+  gameWon = false;
+  gameOverReason = '';
+  navSim.shipX = MONITOR_SCREEN.x + MONITOR_SCREEN.width / 2;
+  navSim.shipY = MONITOR_SCREEN.y + MONITOR_SCREEN.height / 2;
+  navSim.angle = -Math.PI / 2;
+  navSim.wheel = 0;
+  navSim.measuredX = navSim.shipX;
+  navSim.measuredY = navSim.shipY;
+  navSim.measuredAngle = navSim.angle;
+  navSim.measuredAt = null;
+  powerSim.battery = BATTERY_MAX;
+  fuelSim.fuel = FUEL_MAX;
+  oxygenLeft = OXYGEN_SECONDS;
+  playerReturnPos = null;
 }
 
 // --- Power simulation ----------------------------------------------------------
