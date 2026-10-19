@@ -444,6 +444,12 @@ class MainScene extends Phaser.Scene {
     });
     // The looping ambience.
     this.load.audio('ambience', 'sound/lusit_sven-bitcrushed-ambience-600682.mp3');
+    // The jump sound (also used by the refuel minigame).
+    this.load.audio('blep', 'sound/fx/blep.mp3');
+    // The footstep sound for the walking animation.
+    this.load.audio('tap', 'sound/fx/tap.mp3');
+    // The climbing sounds, alternating while the ladder is climbed.
+    this.load.audio('blop', 'sound/fx/blop.mp3');
     // Load other textures and audio here, e.g.:
     // this.load.image('bg', 'assets/bg.png');
   }
@@ -517,6 +523,10 @@ class MainScene extends Phaser.Scene {
     // player mid-jump); cleared on landing or when grabbing the ladder.
     this.jumpInAir = false;
 
+    // Last flip state of the climbing sprite, so the climbing sounds only
+    // play when the frame actually changes (and alternate blep/blop).
+    this.climbFlip = false;
+
     // The animations are global to the game, so only register them once —
     // the main scene is restarted when returning from the navigation screen.
     // Spritesheet: frames 1+2 = idle, frames 1+3 = walking, frame 4 = climbing.
@@ -537,6 +547,12 @@ class MainScene extends Phaser.Scene {
       });
     }
     this.player.play('idle');
+    // Footsteps: a tap whenever the walking animation shows a step (it has
+    // two frames at 8 fps; the tap on the second frame gives 4 steps/s).
+    // The listener dies with the player sprite when the scene restarts.
+    this.player.on('animationupdate', (anim, frame) => {
+      if (anim.key === 'walk' && frame.index === 2) this.sound.play('tap');
+    });
     // Current sprite state ('idle' | 'walk' | 'climb'), to only switch the
     // animation when the state actually changes.
     this.playerState = 'idle';
@@ -637,6 +653,7 @@ class MainScene extends Phaser.Scene {
       if (this.jumpRequested && onFloor) {
         this.playerVy = -JUMP_SPEED;
         this.jumpInAir = true;
+        this.sound.play('blep');
       }
 
       // Gravity: accelerate downwards and land on the highest floor whose
@@ -702,8 +719,14 @@ class MainScene extends Phaser.Scene {
       // Face the walking direction (flipped when walking left).
       p.setFlipX(moveLeft);
     } else if (state === 'climb' && moving) {
-      // Flip the climbing frame back and forth while climbing.
-      p.setFlipX(Math.floor(time / 250) % 2 === 0);
+      // Flip the climbing frame back and forth while climbing, with the
+      // climbing sounds alternating at the same pace.
+      const flip = Math.floor(time / 250) % 2 === 0;
+      if (flip !== this.climbFlip) {
+        this.climbFlip = flip;
+        this.sound.play(flip ? 'blep' : 'blop');
+      }
+      p.setFlipX(flip);
     }
 
     // Sync the debug overlay with the ship's real-time state.
@@ -768,9 +791,14 @@ class NavigationScreenScene extends Phaser.Scene {
     this.load.image('comrad64', 'imgs/comrad64.png');
     // The obstacle texture is normally provided by the main scene already.
     if (!this.textures.exists('bad')) this.load.image('bad', 'imgs/bad.png');
+    // The computer boot sound, played when the screen is entered.
+    this.load.audio('computerboot', 'sound/fx/computerboot.mp3');
   }
 
   create() {
+    // The computer boots up when the navigation screen is opened.
+    this.sound.play('computerboot');
+
     // Full-screen background (source is 800x600, the game resolution).
     this.add.image(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'comrad64').setDepth(0);
 
@@ -1281,6 +1309,12 @@ class MeasurementScene extends Phaser.Scene {
     this.load.image('sextant', 'imgs/sextant.png');
     this.load.image('nav_overlay', 'imgs/nav_overlay.png');
     this.load.image('star', 'imgs/star.png');
+    // The streak sounds: nav1 / nav2 / nav3 for the 1st / 2nd / 3rd hit.
+    this.load.audio('nav1', 'sound/fx/nav1.mp3');
+    this.load.audio('nav2', 'sound/fx/nav2.mp3');
+    this.load.audio('nav3', 'sound/fx/nav3.mp3');
+    // The miss sound (also used for crashes in the refuel minigame).
+    this.load.audio('ouch', 'sound/fx/ouch.mp3');
   }
 
   create() {
@@ -1404,6 +1438,9 @@ class MeasurementScene extends Phaser.Scene {
     const off = Math.abs(this.sliderAngle - this.targetAngle);
     if (off <= ARC_TOLERANCE) {
       this.wins++;
+      // Streak sound: nav1 for the first hit, nav2 for the second, nav3
+      // for the winning third.
+      this.sound.play('nav' + this.wins);
       if (this.wins >= ARC_WINS_NEEDED) {
         // Measurement taken: copy the ship's real position and direction
         // into the measured state shown on the navigation screen.
@@ -1418,6 +1455,7 @@ class MeasurementScene extends Phaser.Scene {
     } else {
       this.wins = 0;
       this.feedbackText.setText('Miss — streak reset!').setColor('#ff0000');
+      this.sound.play('ouch');
     }
     this.newTarget();
     this.updateStreakText();
@@ -1503,6 +1541,10 @@ class DistillerScene extends Phaser.Scene {
   preload() {
     this.load.image('bad', 'imgs/bad.png');
     this.load.image('fueltank', 'imgs/fueltank.png');
+    // The jump sound (normally already cached by the main scene).
+    if (!this.cache.audio.exists('blep')) this.load.audio('blep', 'sound/fx/blep.mp3');
+    // The crash sound for hitting an obstacle and slamming into the ground.
+    if (!this.cache.audio.exists('ouch')) this.load.audio('ouch', 'sound/fx/ouch.mp3');
     // The runner: 2-frame spritesheet, 100x125 per frame.
     if (!this.textures.exists('runner'))
       this.load.spritesheet('runner', 'imgs/Sprite-0002.png', {
@@ -1658,6 +1700,7 @@ class DistillerScene extends Phaser.Scene {
       !!(pad && (pad.X || pad.up));
     if (jumpDown && !this.jumpWasDown && feetY() >= RUN_GROUND - 0.5 && !this.fallen) {
       this.jumpVy = -JUMP_SPEED;
+      this.sound.play('blep');
     }
     this.jumpWasDown = jumpDown;
 
@@ -1679,6 +1722,8 @@ class DistillerScene extends Phaser.Scene {
           this.fallRecovering = true;
           this.runner.anims.stop();
           this.runner.setTexture('fall', 2);
+          // The ground impact: the runner slams into the ground.
+          this.sound.play('ouch');
           this.time.delayedCall(FALL_IMPACT_MS, () => {
             if (this.fallen && this.runner.active) this.runner.play('fall-lying');
           });
@@ -1719,6 +1764,7 @@ class DistillerScene extends Phaser.Scene {
           ob.destroy();
           this.fallen = true;
           this.speed = 0;
+          this.sound.play('ouch');
           // Knocked into the air, tumbling until gravity pulls the runner
           // back down (the impact and lying frames play on landing). One
           // authoritative recovery timer: whatever the animation does, the
