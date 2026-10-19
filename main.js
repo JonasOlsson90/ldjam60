@@ -288,8 +288,8 @@ const BATTERY_DRAIN = 1; // % per second (before POWER_SPEED)
 const PEDAL_BOOST = 2; // % per pedal stroke (before POWER_SPEED)
 const powerSim = { battery: BATTERY_MAX }; // 0..100 %
 
-function updatePowerSim(dt) {
-  powerSim.battery = Math.max(0, powerSim.battery - BATTERY_DRAIN * POWER_SPEED * dt);
+function updatePowerSim(dt, rate = 1) {
+  powerSim.battery = Math.max(0, powerSim.battery - BATTERY_DRAIN * POWER_SPEED * rate * dt);
 }
 
 // --- Fuel simulation -----------------------------------------------------------
@@ -714,9 +714,10 @@ class NavigationScreenScene extends Phaser.Scene {
       showEndText(this);
       return;
     }
-    // Advance the shared simulations and show the ship's state.
+    // Advance the shared simulations and show the ship's state. Running the
+    // computer drains the battery at double speed.
     updateNavSim(delta / 1000);
-    updatePowerSim(delta / 1000);
+    updatePowerSim(delta / 1000, 2);
     updateFuelSim(delta / 1000);
     // No battery, no computer: the screen is dead.
     const noPower = powerSim.battery <= 0;
