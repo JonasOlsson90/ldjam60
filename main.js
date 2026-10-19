@@ -1069,9 +1069,10 @@ class NavigationScreenScene extends Phaser.Scene {
 
     // Esc (or the controller's B button) returns to the main ship screen.
     this.padBWasDown = false;
-    this.input.keyboard.on('keydown-ESC', () => {
-      this.scene.start('MainScene');
-    });
+    // Backspace works like Esc.
+    const exitToShip = () => this.scene.start('MainScene');
+    this.input.keyboard.on('keydown-ESC', exitToShip);
+    this.input.keyboard.on('keydown-BACKSPACE', exitToShip);
   }
 
   update(time, delta) {
@@ -1251,9 +1252,10 @@ class ElectricityGeneratorScene extends Phaser.Scene {
     this.padLeftWasDown = false;
     this.padRightWasDown = false;
     this.padBWasDown = false;
-    this.input.keyboard.on('keydown-ESC', () => {
-      this.scene.start('MainScene');
-    });
+    // Backspace works like Esc.
+    const exitToShip = () => this.scene.start('MainScene');
+    this.input.keyboard.on('keydown-ESC', exitToShip);
+    this.input.keyboard.on('keydown-BACKSPACE', exitToShip);
   }
 
   update(time, delta) {
@@ -1493,9 +1495,10 @@ class SteeringWheelScene extends Phaser.Scene {
 
     // Esc (or the controller's B button) returns to the main ship screen.
     this.padBWasDown = false;
-    this.input.keyboard.on('keydown-ESC', () => {
-      this.scene.start('MainScene');
-    });
+    // Backspace works like Esc.
+    const exitToShip = () => this.scene.start('MainScene');
+    this.input.keyboard.on('keydown-ESC', exitToShip);
+    this.input.keyboard.on('keydown-BACKSPACE', exitToShip);
   }
 
   update(time, delta) {
@@ -1703,9 +1706,10 @@ class MeasurementScene extends Phaser.Scene {
     });
     this.padXWasDown = false;
     this.padBWasDown = false;
-    this.input.keyboard.on('keydown-ESC', () => {
-      this.scene.start('MainScene');
-    });
+    // Backspace works like Esc.
+    const exitToShip = () => this.scene.start('MainScene');
+    this.input.keyboard.on('keydown-ESC', exitToShip);
+    this.input.keyboard.on('keydown-BACKSPACE', exitToShip);
   }
 
   // Roll a new random target angle (±ARC_MAX_ANGLE) and rotate the marker.
@@ -1962,9 +1966,10 @@ class DistillerScene extends Phaser.Scene {
     };
     this.jumpWasDown = false;
     this.padBWasDown = false;
-    this.input.keyboard.on('keydown-ESC', () => {
-      this.scene.start('MainScene');
-    });
+    // Backspace works like Esc.
+    const exitToShip = () => this.scene.start('MainScene');
+    this.input.keyboard.on('keydown-ESC', exitToShip);
+    this.input.keyboard.on('keydown-BACKSPACE', exitToShip);
   }
 
   update(time, delta) {
