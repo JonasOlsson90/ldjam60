@@ -297,6 +297,64 @@ const powerSim = { battery: BATTERY_MAX }; // 0..100 %
 
 function updatePowerSim(dt, rate = 1) {
   powerSim.battery = Math.max(0, powerSim.battery - BATTERY_DRAIN * POWER_SPEED * rate * dt);
+  // No power, no oxygen: the countdown runs (at normal speed, whatever the
+  // battery drain rate) while the battery is empty; reaching 0 is game over.
+  // Recharging the battery restores the full oxygen reserve.
+  if (powerSim.battery <= 0) {
+    oxygenLeft = Math.max(0, oxygenLeft - dt);
+    if (oxygenLeft <= 0) gameOver = true;
+  } else {
+    oxygenLeft = OXYGEN_SECONDS;
+  }
+}
+
+// How long the oxygen lasts once the battery is empty, in seconds.
+const OXYGEN_SECONDS = 20;
+let oxygenLeft = OXYGEN_SECONDS;
+
+// When the battery is empty the whole spaceship goes dark: a huge, almost
+// opaque black square over everything. Shown in every scene except the
+// measurement minigame (that one is out in space). Created lazily per scene
+// and toggled every frame from the scene's update, so it disappears again
+// when the battery is recharged.
+const BLACKOUT_ALPHA = 0.9; // vaguely opaque: the scene barely shines through
+const BLACKOUT_DEPTH = 5000; // above everything except the end-of-game text
+
+function syncBlackout(scene) {
+  // The rectangle is destroyed together with the scene on exit, so recreate
+  // it when the scene is re-entered (a destroyed rectangle is inactive).
+  if (!scene.blackout || !scene.blackout.active) {
+    scene.blackout = scene.add
+      .rectangle(
+        GAME_WIDTH / 2,
+        GAME_HEIGHT / 2,
+        GAME_WIDTH,
+        GAME_HEIGHT,
+        0x000000,
+        BLACKOUT_ALPHA
+      )
+      .setDepth(BLACKOUT_DEPTH);
+  }
+  // The oxygen countdown warning on top of the darkness (same lifecycle).
+  if (!scene.blackoutText || !scene.blackoutText.active) {
+    scene.blackoutText = scene.add
+      .text(GAME_WIDTH / 2, 80, '', {
+        fontFamily: 'monospace',
+        fontSize: '20px',
+        color: '#ffffff',
+        align: 'center',
+      })
+      .setOrigin(0.5)
+      .setDepth(BLACKOUT_DEPTH + 1);
+  }
+  const out = powerSim.battery <= 0;
+  scene.blackout.visible = out;
+  scene.blackoutText.visible = out;
+  if (out) {
+    scene.blackoutText.setText(
+      'OUT OF POWER!\n' + Math.ceil(oxygenLeft) + ' seconds of oxygen left'
+    );
+  }
 }
 
 // --- Fuel simulation -----------------------------------------------------------
@@ -606,6 +664,7 @@ class MainScene extends Phaser.Scene {
       showEndText(this);
       return;
     }
+    syncBlackout(this);
     const dt = delta / 1000;
     const p = this.player;
 
@@ -865,6 +924,7 @@ class NavigationScreenScene extends Phaser.Scene {
     }
     // Advance the shared simulations and show the ship's state. Running the
     // computer drains the battery at double speed.
+    syncBlackout(this);
     updateNavSim(delta / 1000);
     updatePowerSim(delta / 1000, 2);
     updateFuelSim(delta / 1000);
@@ -994,6 +1054,7 @@ class ElectricityGeneratorScene extends Phaser.Scene {
       showEndText(this);
       return;
     }
+    syncBlackout(this);
     updatePowerSim(delta / 1000);
     updateFuelSim(delta / 1000);
     this.batteryText.setText(Math.round(powerSim.battery) + '%');
@@ -1221,6 +1282,7 @@ class SteeringWheelScene extends Phaser.Scene {
       showEndText(this);
       return;
     }
+    syncBlackout(this);
     const dt = delta / 1000;
     // The ship keeps flying (and turning, while the wheel is deflected) and
     // the battery keeps draining while steering.
@@ -1667,6 +1729,7 @@ class DistillerScene extends Phaser.Scene {
       showEndText(this);
       return;
     }
+    syncBlackout(this);
     const dt = delta / 1000;
     // The ship keeps flying and the battery keeps draining while running.
     updateNavSim(dt);
