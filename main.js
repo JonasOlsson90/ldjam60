@@ -318,18 +318,31 @@ function showEndText(scene) {
   }
   // A new run is one key press away.
   scene.add
-    .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 130, 'press SPACE to play again', {
-      fontFamily: 'monospace',
-      fontSize: '16px',
-      color: '#ffffff',
-    })
+    .text(
+      GAME_WIDTH / 2,
+      GAME_HEIGHT / 2 + 130,
+      'press SPACE (or START) to play again',
+      {
+        fontFamily: 'monospace',
+        fontSize: '16px',
+        color: '#ffffff',
+      }
+    )
     .setOrigin(0.5)
     .setDepth(10000);
-  // SPACE starts a new game from the first splash screen.
+  // SPACE starts a new game from the first splash screen. The controller's
+  // START button does the same (edge-detected; this function is called
+  // every frame while the end text is shown).
   scene.input.keyboard.once('keydown-SPACE', () => {
     resetGame();
     scene.scene.start('start');
   });
+  const pad = scene.input.gamepad ? scene.input.gamepad.pad1 : null;
+  if (pad && pad.start && !scene.endPadStartWasDown) {
+    resetGame();
+    scene.scene.start('start');
+  }
+  scene.endPadStartWasDown = !!(pad && pad.start);
 }
 
 // Starts a fresh run after game over / win: every piece of global state back
@@ -524,7 +537,7 @@ class StartScene extends Phaser.Scene {
     this.ship = this.add.image(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'ship_exterior');
     this.logo = this.add.image(GAME_WIDTH / 2, 110, 'logo_big');
     this.startText = this.add
-      .text(GAME_WIDTH / 2, GAME_HEIGHT - 110, 'press SPACE to start', {
+      .text(GAME_WIDTH / 2, GAME_HEIGHT - 110, 'press SPACE (or START) to start', {
         fontFamily: 'monospace',
         fontSize: '20px',
         color: '#ffffff',
@@ -549,34 +562,46 @@ class StartScene extends Phaser.Scene {
     this.scale.on('leavefullscreen', () => this.fsBtn.setText('[FULL SCREEN]'));
 
     // The intro sequence: 'title' -> 'crawl' -> 'zoom' -> scene.start.
+    // Started by SPACE or the controller's START button (edge-detected in
+    // update).
     this.phase = 'title';
-    this.input.keyboard.once('keydown-SPACE', () => {
-      // Skipping the intro: straight into the ship.
-      if (SKIP_INTRO) {
-        this.scene.start('MainScene');
-        return;
-      }
-      this.phase = 'crawl';
-      // The main game music starts with the intro.
-      startKosmos(this);
-      this.startText.setVisible(false);
-      this.tweens.add({ targets: this.logo, alpha: 0, duration: 500 });
-      // The crawl text starts just below the screen (origin = its top edge)
-      // and scrolls up until it has disappeared off the top.
-      this.crawlText = this.add
-        .text(GAME_WIDTH / 2, GAME_HEIGHT, CRAWL_TEXT, {
-          fontFamily: 'monospace',
-          fontSize: '24px',
-          color: '#ffffff',
-          align: 'center',
-          wordWrap: { width: GAME_WIDTH - 160 },
-        })
-        .setOrigin(0.5, 0);
-    });
+    this.padStartWasDown = false;
+    this.input.keyboard.once('keydown-SPACE', () => this.startIntro());
+  }
+
+  // Starts the intro (SPACE on the keyboard, START on the controller).
+  startIntro() {
+    if (this.phase !== 'title') return;
+    // Skipping the intro: straight into the ship.
+    if (SKIP_INTRO) {
+      this.scene.start('MainScene');
+      return;
+    }
+    this.phase = 'crawl';
+    // The main game music starts with the intro.
+    startKosmos(this);
+    this.startText.setVisible(false);
+    this.tweens.add({ targets: this.logo, alpha: 0, duration: 500 });
+    // The crawl text starts just below the screen (origin = its top edge)
+    // and scrolls up until it has disappeared off the top.
+    this.crawlText = this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT, CRAWL_TEXT, {
+        fontFamily: 'monospace',
+        fontSize: '24px',
+        color: '#ffffff',
+        align: 'center',
+        wordWrap: { width: GAME_WIDTH - 160 },
+      })
+      .setOrigin(0.5, 0);
   }
 
   update(time, delta) {
     const dt = delta / 1000;
+
+    // The controller's START button starts the intro like SPACE.
+    const pad = this.input.gamepad ? this.input.gamepad.pad1 : null;
+    if (pad && pad.start && !this.padStartWasDown) this.startIntro();
+    this.padStartWasDown = !!(pad && pad.start);
 
     // The star field always drifts from right to left, wrapping at the edges.
     for (const s of this.stars) {
