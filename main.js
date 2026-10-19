@@ -312,6 +312,116 @@ function updateFuelSim(dt) {
   fuelSim.fuel = Math.max(0, fuelSim.fuel - FUEL_DRAIN * FUEL_SPEED * dt);
 }
 
+// --- Start screen -----------------------------------------------------------
+// Title screen: the big logo above the ship's exterior, drifting stars behind
+// (same star field as the other space scenes). SPACE starts the intro: a text
+// crawl scrolls up and off the screen, then the camera zooms in on the ship
+// (focus point ~20% from its right edge) until the ship fills the frame from
+// top to bottom; the ship fades away and the game starts.
+const CRAWL_TEXT =
+  'Comrad Kosmo drank all the rocket fuel and is now stranded in space. ' +
+  'Help him get back to the Motherland using his backup technology.';
+const CRAWL_SPEED = 70; // px/s upwards
+const INTRO_ZOOM_MS = 2500; // camera zoom-in duration
+const INTRO_SHIP_FADE_MS = 800; // ship fade-out before the game starts
+
+class StartScene extends Phaser.Scene {
+  constructor() {
+    super({ key: 'start' });
+  }
+
+  preload() {
+    this.load.image('star', 'imgs/star.png');
+    this.load.image('logo_big', 'imgs/logo_big.png');
+    this.load.image('ship_exterior', 'imgs/ship_exterior.png');
+  }
+
+  create() {
+    this.cameras.main.setBackgroundColor('#101018');
+
+    // The star field behind everything: stars of differing sizes drift from
+    // right to left at speeds proportional to their size (bigger = closer =
+    // faster), wrapping around at the left edge.
+    this.stars = [];
+    for (let i = 0; i < NAV_STAR_COUNT; i++) {
+      const scale = Phaser.Math.FloatBetween(NAV_STAR_MIN_SCALE, NAV_STAR_MAX_SCALE);
+      const star = this.add
+        .image(Math.random() * GAME_WIDTH, Math.random() * GAME_HEIGHT, 'star')
+        .setScale(scale);
+      star.drift = scale * NAV_STAR_SPEED; // px/s
+      this.stars.push(star);
+    }
+
+    // The ship's exterior in the center, the big logo above it and the
+    // instructions below.
+    this.ship = this.add.image(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'ship_exterior');
+    this.logo = this.add.image(GAME_WIDTH / 2, 110, 'logo_big');
+    this.startText = this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT - 110, 'press SPACE to start', {
+        fontFamily: 'monospace',
+        fontSize: '20px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5);
+
+    // The intro sequence: 'title' -> 'crawl' -> 'zoom' -> scene.start.
+    this.phase = 'title';
+    this.input.keyboard.once('keydown-SPACE', () => {
+      this.phase = 'crawl';
+      this.startText.setVisible(false);
+      this.tweens.add({ targets: this.logo, alpha: 0, duration: 500 });
+      // The crawl text starts just below the screen (origin = its top edge)
+      // and scrolls up until it has disappeared off the top.
+      this.crawlText = this.add
+        .text(GAME_WIDTH / 2, GAME_HEIGHT, CRAWL_TEXT, {
+          fontFamily: 'monospace',
+          fontSize: '24px',
+          color: '#ffffff',
+          align: 'center',
+          wordWrap: { width: GAME_WIDTH - 160 },
+        })
+        .setOrigin(0.5, 0);
+    });
+  }
+
+  update(time, delta) {
+    const dt = delta / 1000;
+
+    // The star field always drifts from right to left, wrapping at the edges.
+    for (const s of this.stars) {
+      s.x -= s.drift * dt;
+      if (s.x < -8) s.x += GAME_WIDTH + 16;
+    }
+
+    if (this.phase === 'crawl') {
+      this.crawlText.y -= CRAWL_SPEED * dt;
+      // The crawl is done once the whole text has scrolled off the top.
+      if (this.crawlText.y + this.crawlText.height < 0) {
+        this.phase = 'zoom';
+        this.crawlText.destroy();
+        // Zoom in on the ship: the focus point sits ~20% of the ship's width
+        // from its right edge; the zoom ends once the ship fills the frame
+        // from top to bottom.
+        const focusX = this.ship.x + this.ship.displayWidth * (0.5 - 0.2);
+        const zoom = GAME_HEIGHT / this.ship.displayHeight;
+        const cam = this.cameras.main;
+        cam.pan(focusX, this.ship.y, INTRO_ZOOM_MS, 'Sine.easeInOut');
+        cam.zoomTo(zoom, INTRO_ZOOM_MS, 'Sine.easeInOut', false, (camera, progress) => {
+          if (progress !== 1) return;
+          // Fully zoomed in: the ship fades away, then the game starts.
+          this.phase = 'fade';
+          this.tweens.add({
+            targets: this.ship,
+            alpha: 0,
+            duration: INTRO_SHIP_FADE_MS,
+            onComplete: () => this.scene.start('MainScene'),
+          });
+        });
+      }
+    }
+  }
+}
+
 // --- Main scene -------------------------------------------------------------
 // The ambience loops for the entire game. Started once in the main scene
 // (which is restarted when returning from minigames — hence the flag).
@@ -1645,6 +1755,7 @@ const config = {
     },
   },
   scene: [
+    StartScene,
     MainScene,
     NavigationScreenScene,
     ElectricityGeneratorScene,
