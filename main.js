@@ -1351,17 +1351,15 @@ class MeasurementScene extends Phaser.Scene {
 // --- Distiller minigame scene -------------------------------------------------
 // Refuel run: the player carries a full bottle to the fuel tank but drinks
 // from it continually on the way — the faster the run, the more fuel is left
-// to pour into the ship's tank. Hold D / right arrow (or the controller's
-// D-pad right) to accelerate from a standstill; the speed is kept until an
-// obstacle is hit, which stops the player cold. Jump (SPACE / UP / X / D-pad
-// up) over the obstacles. Reaching the tank adds the bottle's remaining
-// contents to the ship's fuel; a bottle drunk dry before the tank means the
-// run failed. Esc (or the controller's B button) aborts.
-const RUN_MAX_SPEED = 350; // px/s at full tilt
-// px/s^2 while holding right: deliberately slow, so hitting an obstacle (and
-// losing all speed) costs precious seconds of bottle — jumping is always
-// better than tanking a hit.
-const RUN_ACCEL = 100;
+// to pour into the ship's tank. The player runs at a constant speed; jump
+// (SPACE / UP / X / D-pad up) over the obstacles. Hitting an obstacle knocks
+// the player down (shown red for now — a fall graphic comes later) and it
+// takes a moment to get up and start running again, all while the bottle
+// keeps draining. Reaching the tank adds the bottle's remaining contents to
+// the ship's fuel; a bottle drunk dry before the tank means the run failed.
+// Esc (or the controller's B button) aborts.
+const RUN_SPEED = 350; // px/s, constant
+const FALL_RECOVER_MS = 1500; // ms lying on the ground after hitting an obstacle
 const RUN_TANK_DISTANCE = 3000; // px from the start to the fuel tank
 // Positions (px) of the obstacles along the run.
 const RUN_OBSTACLES = [700, 1250, 1800, 2350];
@@ -1410,9 +1408,7 @@ class DistillerScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(10);
 
-    // The player starts at a standstill on the left of the screen. The run
-    // animation's base frame rate is for full speed; it is scaled down with
-    // the actual speed while running.
+    // The player runs in place on the left of the screen at a constant speed.
     this.runner = this.add.sprite(RUN_PLAYER_X, 0, 'runner');
     this.runner.y = RUN_GROUND - this.runner.displayHeight / 2;
     this.runner.setFrame(0);
@@ -1424,7 +1420,8 @@ class DistillerScene extends Phaser.Scene {
         repeat: -1,
       });
     }
-    this.speed = 0; // px/s, built up by holding right
+    this.speed = RUN_SPEED; // px/s, constant
+    this.fallen = false; // knocked down by an obstacle, getting up shortly
     this.jumpVy = 0; // < 0 while jumping
 
     // The bottle starts full; the player drinks from it continually.
@@ -1453,15 +1450,12 @@ class DistillerScene extends Phaser.Scene {
       .setDepth(-1);
     this.tank.y = RUN_GROUND - this.tank.displayHeight / 2;
 
-    // Accelerate: D / right arrow / D-pad right. Jump: SPACE / UP / W, or the
-    // controller's X button / D-pad up (all edge-detected in update).
-    // Esc (or B) aborts.
+    // Jump: SPACE / UP / W, or the controller's X button / D-pad up (all
+    // edge-detected in update). Esc (or B) aborts.
     this.keys = {
       space: this.input.keyboard.addKey('SPACE'),
       up: this.input.keyboard.addKey('UP'),
       w: this.input.keyboard.addKey('W'),
-      d: this.input.keyboard.addKey('D'),
-      right: this.input.keyboard.addKey('RIGHT'),
     };
     this.jumpWasDown = false;
     this.padBWasDown = false;
@@ -1490,31 +1484,21 @@ class DistillerScene extends Phaser.Scene {
 
     const feetY = () => this.runner.y + this.runner.displayHeight / 2;
 
-    // Accelerate while right is held; the speed is kept until an obstacle
-    // stops the player cold.
-    const accelDown =
-      this.keys.d.isDown || this.keys.right.isDown || !!(pad && pad.right);
-    if (accelDown) {
-      this.speed = Math.min(RUN_MAX_SPEED, this.speed + RUN_ACCEL * dt);
-    }
-
-    // The runner runs in place while moving, stands while slow; the faster
-    // it runs, the faster the animation plays.
+    // The runner runs in place while moving, stands while knocked down.
     if (this.speed > 5) {
       if (!this.runner.anims.isPlaying) this.runner.play('run');
-      this.runner.anims.timeScale = Math.max(0.2, this.speed / RUN_MAX_SPEED);
     } else if (this.runner.anims.isPlaying) {
       this.runner.anims.stop();
       this.runner.setFrame(0);
     }
 
-    // Jump (edge-detected), only from the ground.
+    // Jump (edge-detected), only from the ground and not while knocked down.
     const jumpDown =
       this.keys.space.isDown ||
       this.keys.up.isDown ||
       this.keys.w.isDown ||
       !!(pad && (pad.X || pad.up));
-    if (jumpDown && !this.jumpWasDown && feetY() >= RUN_GROUND - 0.5) {
+    if (jumpDown && !this.jumpWasDown && feetY() >= RUN_GROUND - 0.5 && !this.fallen) {
       this.jumpVy = -JUMP_SPEED;
     }
     this.jumpWasDown = jumpDown;
@@ -1544,22 +1528,31 @@ class DistillerScene extends Phaser.Scene {
       return;
     }
 
-    // Hitting an obstacle knocks it away and stops the player cold. The
-    // runner's hitbox is only the left half of the sprite, so it is centered
-    // a quarter of the sprite's width to the left of its center.
+    // Hitting an obstacle knocks the player down (shown red for now — a fall
+    // graphic comes later): it takes a moment to get up and start running
+    // again, all while the bottle keeps draining. The runner's hitbox is only
+    // the left half of the sprite, so it is centered a quarter of the
+    // sprite's width to the left of its center.
     const hitX = RUN_PLAYER_X - this.runner.displayWidth / 4;
     const hitW = this.runner.displayWidth / 2;
-    for (let i = this.obstacles.length - 1; i >= 0; i--) {
-      const ob = this.obstacles[i];
-      if (
-        Math.abs(ob.x - hitX) < (RUN_OBSTACLE_SIZE + hitW) / 2 - 8 &&
-        feetY() > RUN_GROUND - RUN_OBSTACLE_SIZE + 8
-      ) {
-        this.obstacles.splice(i, 1);
-        ob.destroy();
-        this.speed = 0;
-        this.runner.setTint(0xff0000);
-        this.time.delayedCall(250, () => this.runner.clearTint());
+    if (!this.fallen) {
+      for (let i = this.obstacles.length - 1; i >= 0; i--) {
+        const ob = this.obstacles[i];
+        if (
+          Math.abs(ob.x - hitX) < (RUN_OBSTACLE_SIZE + hitW) / 2 - 8 &&
+          feetY() > RUN_GROUND - RUN_OBSTACLE_SIZE + 8
+        ) {
+          this.obstacles.splice(i, 1);
+          ob.destroy();
+          this.fallen = true;
+          this.speed = 0;
+          this.runner.setTint(0xff0000);
+          this.time.delayedCall(FALL_RECOVER_MS, () => {
+            this.runner.clearTint();
+            this.fallen = false;
+            this.speed = RUN_SPEED;
+          });
+        }
       }
     }
 
