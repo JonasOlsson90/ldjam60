@@ -1364,13 +1364,16 @@ class MeasurementScene extends Phaser.Scene {
 // from it continually on the way — the faster the run, the more fuel is left
 // to pour into the ship's tank. The player runs at a constant speed; jump
 // (SPACE / UP / X / D-pad up) over the obstacles. Hitting an obstacle knocks
-// the player down (shown red for now — a fall graphic comes later) and it
-// takes a moment to get up and start running again, all while the bottle
-// keeps draining. Reaching the tank adds the bottle's remaining contents to
-// the ship's fuel; a bottle drunk dry before the tank means the run failed.
+// the player off their feet: they tumble through the air, slam into the
+// ground and lie there for a moment before getting up and running again, all
+// while the bottle keeps draining. Reaching the tank adds the bottle's
+// remaining contents to the ship's fuel; a bottle drunk dry before the tank
+// means the run failed.
 // Esc (or the controller's B button) aborts.
 const RUN_SPEED = 350; // px/s, constant
-const FALL_RECOVER_MS = 1500; // ms lying on the ground after hitting an obstacle
+const FALL_KNOCKBACK = 350; // px/s upwards when knocked off the feet
+const FALL_IMPACT_MS = 250; // ms showing the ground-impact frame
+const FALL_LIE_MS = 2000; // ms lying on the ground before getting up
 const RUN_TANK_DISTANCE = 3000; // px from the start to the fuel tank
 // Positions (px) of the obstacles along the run.
 const RUN_OBSTACLES = [700, 1250, 1800, 2350];
@@ -1392,6 +1395,14 @@ class DistillerScene extends Phaser.Scene {
     if (!this.textures.exists('runner'))
       this.load.spritesheet('runner', 'imgs/Sprite-0002.png', {
         frameWidth: 100,
+        frameHeight: 125,
+      });
+    // The fall animation: 5-frame spritesheet, 125x125 per frame. Frames 1-2
+    // loop while the player tumbles through the air, frame 3 is the ground
+    // impact and frames 4-5 loop while lying on the ground before getting up.
+    if (!this.textures.exists('fall'))
+      this.load.spritesheet('fall', 'imgs/Sprite-fall.png', {
+        frameWidth: 125,
         frameHeight: 125,
       });
   }
@@ -1431,8 +1442,25 @@ class DistillerScene extends Phaser.Scene {
         repeat: -1,
       });
     }
+    if (!this.anims.exists('falling')) {
+      this.anims.create({
+        key: 'falling',
+        frames: this.anims.generateFrameNumbers('fall', { frames: [0, 1] }),
+        frameRate: 6,
+        repeat: -1,
+      });
+    }
+    if (!this.anims.exists('fall-lying')) {
+      this.anims.create({
+        key: 'fall-lying',
+        frames: this.anims.generateFrameNumbers('fall', { frames: [3, 4] }),
+        frameRate: 4,
+        repeat: -1,
+      });
+    }
     this.speed = RUN_SPEED; // px/s, constant
     this.fallen = false; // knocked down by an obstacle, getting up shortly
+    this.fallRecovering = false; // landed after the fall, getting up shortly
     this.jumpVy = 0; // < 0 while jumping
 
     // The bottle starts full; the player drinks from it continually.
@@ -1495,12 +1523,15 @@ class DistillerScene extends Phaser.Scene {
 
     const feetY = () => this.runner.y + this.runner.displayHeight / 2;
 
-    // The runner runs in place while moving, stands while knocked down.
-    if (this.speed > 5) {
-      if (!this.runner.anims.isPlaying) this.runner.play('run');
-    } else if (this.runner.anims.isPlaying) {
-      this.runner.anims.stop();
-      this.runner.setFrame(0);
+    // The runner runs in place while moving; while knocked down the fall
+    // animation sequence runs instead (tumble, impact, lying down).
+    if (!this.fallen) {
+      if (this.speed > 5) {
+        if (!this.runner.anims.isPlaying) this.runner.play('run');
+      } else if (this.runner.anims.isPlaying) {
+        this.runner.anims.stop();
+        this.runner.setFrame(0);
+      }
     }
 
     // Jump (edge-detected), only from the ground and not while knocked down.
@@ -1521,6 +1552,25 @@ class DistillerScene extends Phaser.Scene {
       if (feetY() >= RUN_GROUND) {
         this.runner.y = RUN_GROUND - this.runner.displayHeight / 2;
         this.jumpVy = 0;
+        // Landing after being knocked down: show the impact frame briefly,
+        // then lie on the ground for a moment before getting up again.
+        if (this.fallen && !this.fallRecovering) {
+          this.fallRecovering = true;
+          this.runner.anims.stop();
+          this.runner.setTexture('fall', 2);
+          this.time.delayedCall(FALL_IMPACT_MS, () => {
+            this.runner.play('fall-lying');
+            this.time.delayedCall(FALL_LIE_MS, () => {
+              this.fallen = false;
+              this.fallRecovering = false;
+              this.speed = RUN_SPEED;
+              // play() stops the still-looping fall-lying animation and
+              // switches back to the runner spritesheet (a bare setTexture
+              // would be overridden by the still-playing animation).
+              this.runner.play('run');
+            });
+          });
+        }
       }
     }
 
@@ -1539,11 +1589,11 @@ class DistillerScene extends Phaser.Scene {
       return;
     }
 
-    // Hitting an obstacle knocks the player down (shown red for now — a fall
-    // graphic comes later): it takes a moment to get up and start running
-    // again, all while the bottle keeps draining. The runner's hitbox is only
-    // the left half of the sprite, so it is centered a quarter of the
-    // sprite's width to the left of its center.
+    // Hitting an obstacle knocks the player off their feet: they tumble
+    // through the air, slam into the ground and lie there for a moment before
+    // getting up and running again, all while the bottle keeps draining. The
+    // runner's hitbox is only the left half of the sprite, so it is centered
+    // a quarter of the sprite's width to the left of its center.
     const hitX = RUN_PLAYER_X - this.runner.displayWidth / 4;
     const hitW = this.runner.displayWidth / 2;
     if (!this.fallen) {
@@ -1557,12 +1607,10 @@ class DistillerScene extends Phaser.Scene {
           ob.destroy();
           this.fallen = true;
           this.speed = 0;
-          this.runner.setTint(0xff0000);
-          this.time.delayedCall(FALL_RECOVER_MS, () => {
-            this.runner.clearTint();
-            this.fallen = false;
-            this.speed = RUN_SPEED;
-          });
+          // Knocked into the air, tumbling until gravity pulls the runner
+          // back down (the impact and lying frames play on landing).
+          this.jumpVy = -FALL_KNOCKBACK;
+          this.runner.play('falling');
         }
       }
     }
