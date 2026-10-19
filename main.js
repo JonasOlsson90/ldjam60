@@ -956,8 +956,9 @@ class NavigationScreenScene extends Phaser.Scene {
 
   preload() {
     this.load.image('comrad64', 'imgs/comrad64.png');
-    // The obstacle texture is normally provided by the main scene already.
-    if (!this.textures.exists('bad')) this.load.image('bad', 'imgs/bad.png');
+    // The obstacles and the goal (home).
+    this.load.image('danger', 'imgs/danger.png');
+    this.load.image('home', 'imgs/home.png');
     // The computer boot sound, played when the screen is entered.
     this.load.audio('computerboot', 'sound/fx/computerboot.mp3');
   }
@@ -969,19 +970,37 @@ class NavigationScreenScene extends Phaser.Scene {
     // Full-screen background (source is 800x600, the game resolution).
     this.add.image(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'comrad64').setDepth(0);
 
-    // The obstacles in space (placeholder graphic); part of the navigational
-    // data, so they go blind with the rest of the screen.
-    this.obstacles = OBSTACLES.map((o) =>
-      this.add.image(o.x, o.y, 'bad').setDisplaySize(OBSTACLE_SIZE, OBSTACLE_SIZE).setDepth(10)
-    );
+    // The label style for the objects on the monitor screen: small white
+    // text centered under each element.
+    const labelStyle = { fontFamily: 'monospace', fontSize: '12px', color: '#ffffff' };
 
-    // The goal: a static square near the top-right corner of the monitor
-    // screen, with a small margin. The ship navigates towards it.
-    this.goal = this.add.rectangle(GOAL_X, GOAL_Y, GOAL_SIZE, GOAL_SIZE, 0x00ff00).setDepth(10);
+    // The obstacles in space; part of the navigational data, so they go
+    // blind with the rest of the screen. Each has a label under it.
+    this.obstacles = OBSTACLES.map((o) => {
+      const img = this.add.image(o.x, o.y, 'danger').setDisplaySize(OBSTACLE_SIZE, OBSTACLE_SIZE).setDepth(10);
+      img.label = this.add
+        .text(o.x, o.y + OBSTACLE_SIZE / 2 + 2, 'Astroid', labelStyle)
+        .setOrigin(0.5, 0)
+        .setDepth(10);
+      return img;
+    });
+
+    // The goal: home, near the top-right corner of the monitor screen, with
+    // a small margin. The ship navigates towards it.
+    this.goal = this.add.image(GOAL_X, GOAL_Y, 'home').setDisplaySize(GOAL_SIZE, GOAL_SIZE).setDepth(10);
+    this.add
+      .text(GOAL_X, GOAL_Y + GOAL_SIZE / 2 + 2, 'Home', labelStyle)
+      .setOrigin(0.5, 0)
+      .setDepth(10);
 
     // The ship: a red triangle that moves in the direction it points to
-    // (driven by the always-running navigation simulation).
+    // (driven by the always-running navigation simulation). Its label
+    // follows it (positioned in update()).
     this.ship = createNavShip(this, 1, 10);
+    this.ship.label = this.add
+      .text(navSim.shipX, navSim.shipY + 14, 'Kaputnik', labelStyle)
+      .setOrigin(0.5, 0)
+      .setDepth(10);
 
     // The remaining lifetime of the current data, in the upper left corner
     // of the monitor screen; updated live in update().
@@ -1049,8 +1068,16 @@ class NavigationScreenScene extends Phaser.Scene {
         : (performance.now() - navSim.measuredAt) / 1000;
     const showData = !noPower && dataAge <= NAV_DATA_TTL;
     this.ship.setVisible(showData);
-    for (const ob of this.obstacles) ob.setVisible(showData);
-    if (showData) syncNavShipLive(this.ship);
+    this.ship.label.setVisible(showData);
+    for (const ob of this.obstacles) {
+      ob.setVisible(showData);
+      ob.label.setVisible(showData);
+    }
+    if (showData) {
+      syncNavShipLive(this.ship);
+      // The ship's label follows the moving ship.
+      this.ship.label.setPosition(this.ship.x, this.ship.y + 14);
+    }
     this.ageText.setVisible(showData);
     if (showData) {
       this.ageText.setText(
