@@ -39,6 +39,13 @@ let playerReturnPos = null;
 const FLOOR_TOP = 290;
 const FLOOR_BOTTOM = 576;
 const LADDER = { x: 360, width: 70 };
+// The battery meter graphic in ship_interior.png (game coordinates): the
+// coloured battery on the wall panel next to the bike. A black cover grows
+// down over it from the top as the battery empties.
+const BATTERY_METER_X = 61; // center
+const BATTERY_METER_TOP = 378;
+const BATTERY_METER_W = 62;
+const BATTERY_METER_H = 90;
 
 const MOVE_SPEED = 200; // px/s walking
 const CLIMB_SPEED = 160; // px/s on the ladder
@@ -340,6 +347,17 @@ class MainScene extends Phaser.Scene {
       .setDisplaySize(GAME_WIDTH, GAME_HEIGHT)
       .setDepth(0);
 
+    // The battery meter on the wall next to the bike: a black square that
+    // covers more and more of the coloured battery from the top as the
+    // charge depletes (full = nothing covered, empty = fully covered). The
+    // cover grows down from the battery's top edge by scaling; it stays below
+    // the player (depth 10).
+    this.batteryCover = this.add
+      .rectangle(BATTERY_METER_X, BATTERY_METER_TOP, BATTERY_METER_W, BATTERY_METER_H, 0x000000)
+      .setOrigin(0.5, 0)
+      .setScale(1, 0)
+      .setDepth(1);
+
     // Player: the character sprite, standing at the bottom-center of the
     // screen (feet on the edge) with the 2-frame idle animation looping.
     this.player = this.add.sprite(GAME_WIDTH / 2, GAME_HEIGHT, 'player').setDepth(10);
@@ -529,6 +547,9 @@ class MainScene extends Phaser.Scene {
     updateFuelSim(dt);
     this.batteryDebug.setText('Battery: ' + Math.round(powerSim.battery) + '%');
     this.fuelDebug.setText('Fuel: ' + Math.round(fuelSim.fuel) + '%');
+    // The black square covers more and more of the wall battery meter as the
+    // battery empties.
+    this.batteryCover.setScale(1, 1 - powerSim.battery / BATTERY_MAX);
 
     // Taking a measurement: climbing out of the top of the screen opens the
     // arc measurement minigame; winning it updates the navigation display's
