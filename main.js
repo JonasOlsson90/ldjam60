@@ -9,7 +9,7 @@ const DEBUG = false;
 
 // Skip the intro animation (text crawl, zoom, ship fade) on the title screen:
 // SPACE jumps straight into the ship.
-const SKIP_INTRO = false;
+const SKIP_INTRO = true;
 
 // Navigation screen trigger: the area in front of the computer on the desk in
 // the ship's top-left cabin (game coordinates, measured from ship_interior.png,
@@ -341,7 +341,7 @@ function updatePowerSim(dt, rate = 1) {
 }
 
 // How long the oxygen lasts once the battery is empty, in seconds.
-const OXYGEN_SECONDS = 20;
+const OXYGEN_SECONDS = 15;
 let oxygenLeft = OXYGEN_SECONDS;
 
 // When the battery is empty the whole spaceship goes dark: a huge, almost
@@ -975,10 +975,10 @@ class NavigationScreenScene extends Phaser.Scene {
       return;
     }
     // Advance the shared simulations and show the ship's state. Running the
-    // computer drains the battery at double speed.
+    // computer drains the battery at four times the speed.
     syncBlackout(this);
     updateNavSim(delta / 1000);
-    updatePowerSim(delta / 1000, 2);
+    updatePowerSim(delta / 1000, 4);
     updateFuelSim(delta / 1000);
     // No battery, no computer: the screen is dead.
     const noPower = powerSim.battery <= 0;
